@@ -499,6 +499,24 @@ function Dashboard({ fin, nav, onNav }) {
         </div>
       </div>
 
+      {/* Compartilhar resumo */}
+      {nav.isAtual && lancs.length > 0 && (
+        <button onClick={() => {
+          const texto = `📊 *Resumo ${MESES_NOME[nav.mes]}/${nav.ano}*\n\n`
+            + `💰 Receitas: ${fmt(receitas)}\n`
+            + `💸 Despesas: ${fmt(despesas)}\n`
+            + `${saldo >= 0 ? "✅" : "🔴"} Saldo: ${fmt(saldo)}\n\n`
+            + `📈 Faturamento anual: ${fmt(fin.faturamentoAnual)} de ${fmt(fin.config.limiteAnual)} (${Math.round(fin.percentualFaturamento)}%)\n\n`
+            + `_Enviado pelo MEI Dinheiro Verde_\n`
+            + `mei-dinheiro-verde-app.vercel.app`;
+          const url = `https://wa.me/?text=${encodeURIComponent(texto)}`;
+          window.open(url, "_blank");
+        }}
+          className="mt-3 w-full flex items-center justify-center gap-2 bg-white border border-gray-200 rounded-xl py-2.5 text-sm text-gray-600 font-medium active:bg-gray-50 transition-colors">
+          <Ic.Send s={14} c="#059669"/> Compartilhar resumo
+        </button>
+      )}
+
       {/* Termômetro */}
       <div className="mt-4 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
         <div className="flex justify-between items-baseline">
@@ -530,10 +548,25 @@ function Dashboard({ fin, nav, onNav }) {
               <p className="text-xs text-emerald-600 mt-0.5">{dasDoMes ? `${nomeMes(dasDoMes.mesReferencia)} — ${fmt(dasDoMes.valor)}` : ""}</p></div>
           </div>
         ) : (
-          <div className="mt-4 bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3 cursor-pointer active:bg-amber-100" onClick={() => onNav("novo-das")}>
-            <span className="text-amber-500 text-xl leading-none">⚠</span>
-            <div><p className="text-sm font-medium text-amber-800">DAS pendente</p>
-              <p className="text-xs text-amber-600 mt-0.5">Vence dia {fin.config.diaDAS} — Toque para registrar</p></div>
+          <div className="mt-4 bg-amber-50 border border-amber-200 rounded-2xl p-4">
+            <div className="flex items-start gap-3">
+              <span className="text-amber-500 text-xl leading-none">⚠</span>
+              <div className="flex-1">
+                <p className="text-sm font-medium text-amber-800">DAS pendente</p>
+                <p className="text-xs text-amber-600 mt-0.5">Vence dia {fin.config.diaDAS} deste mês</p>
+              </div>
+            </div>
+            <div className="flex gap-2 mt-3">
+              <button onClick={() => onNav("novo-das")}
+                className="flex-1 bg-amber-600 text-white py-2.5 rounded-xl text-xs font-medium active:bg-amber-700 transition-colors">
+                Registrar pagamento
+              </button>
+              <a href="https://www8.receita.fazenda.gov.br/SimplesNacional/Aplicacoes/ATSPO/pgmei.app/Identificacao"
+                target="_blank" rel="noopener noreferrer"
+                className="flex-1 bg-white border border-amber-300 text-amber-700 py-2.5 rounded-xl text-xs font-medium text-center active:bg-amber-50 transition-colors">
+                Abrir PGMEI ↗
+              </a>
+            </div>
           </div>
         )
       )}
