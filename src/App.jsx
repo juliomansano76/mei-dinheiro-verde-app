@@ -165,6 +165,35 @@ function fmtData(iso) {
 function hojeISO() { return new Date().toISOString().split("T")[0]; }
 function nomeMes(ref) { const [a, m] = ref.split("-").map(Number); return new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" }).format(new Date(a, m-1, 1)); }
 
+// Máscara de moeda: transforma input em "1.500,00"
+function mascaraMoeda(valor) {
+  let nums = valor.replace(/\D/g, "");
+  if (!nums) return "";
+  nums = nums.replace(/^0+/, "") || "0";
+  while (nums.length < 3) nums = "0" + nums;
+  const inteiro = nums.slice(0, -2);
+  const decimal = nums.slice(-2);
+  const comPonto = inteiro.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  return `${comPonto},${decimal}`;
+}
+
+// Parse de moeda mascarada para número
+function parseMoedaMascarada(valor) {
+  if (!valor) return 0;
+  const limpo = valor.replace(/\./g, "").replace(",", ".");
+  return parseFloat(limpo) || 0;
+}
+
+// Máscara de CNPJ: 00.000.000/0001-00
+function mascaraCNPJ(valor) {
+  const nums = valor.replace(/\D/g, "").slice(0, 14);
+  return nums
+    .replace(/^(\d{2})(\d)/, "$1.$2")
+    .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
+    .replace(/\.(\d{3})(\d)/, ".$1/$2")
+    .replace(/(\d{4})(\d)/, "$1-$2");
+}
+
 // ============================================================
 // ÍCONES
 // ============================================================
@@ -463,7 +492,7 @@ function NovoLancamento({ fin, arq, onVoltar, modoInicial, lancamentoEditando })
   const editando = lancamentoEditando || null;
   const [modo, setModo] = useState(modoInicial || "lancamento");
   const [tipo, setTipo] = useState(editando?.tipo || "receita");
-  const [valor, setValor] = useState(editando ? String(editando.valor).replace(".", ",") : "");
+  const [valor, setValor] = useState(editando ? mascaraMoeda(String(Math.round(editando.valor * 100))) : "");
   const [categoria, setCategoria] = useState(editando?.categoria || "Serviços Prestados");
   const [data, setData] = useState(editando?.data || hojeISO());
   const [descricao, setDescricao] = useState(editando?.descricao || "");
@@ -492,7 +521,7 @@ function NovoLancamento({ fin, arq, onVoltar, modoInicial, lancamentoEditando })
   function salvar() {
     const e = {};
     if (modo === "lancamento") {
-      const v = parseFloat(valor.replace(/\./g, "").replace(",", ".")) || 0;
+      const v = parseMoedaMascarada(valor);
       if (v <= 0) e.valor = "Informe um valor";
     } else { if (!dasValor || parseFloat(dasValor) <= 0) e.dasValor = "Informe o valor"; }
     setErros(e); if (Object.keys(e).length > 0) return;
@@ -504,7 +533,7 @@ function NovoLancamento({ fin, arq, onVoltar, modoInicial, lancamentoEditando })
       fin.adicionarDAS({ mesReferencia: dasMes, valor: vDAS, status: dasStatus, dataVencimento: `${dasMes}-20`, arquivoId });
       if (dasStatus === "pago" && vDAS > 0 && !fin.existeLancamentoDAS(dasMes)) fin.adicionarLancamento({ tipo: "despesa", valor: vDAS, categoria: "DAS - Simples Nacional", data: `${dasMes}-20`, descricao: `DAS ref. ${dasMes}`, arquivoId, recorrente: false });
     } else {
-      const v = parseFloat(valor.replace(/\./g, "").replace(",", ".")) || 0;
+      const v = parseMoedaMascarada(valor);
       let arquivoId = editando?.arquivoId || null;
       if (arquivoFile) arquivoId = arq.salvarArquivo(arquivoFile);
       if (editando) {
@@ -560,8 +589,11 @@ function NovoLancamento({ fin, arq, onVoltar, modoInicial, lancamentoEditando })
               <button onClick={() => setTipo("despesa")} className={`flex-1 py-3 rounded-xl text-sm font-medium transition-all ${tipo === "despesa" ? "bg-red-100 text-red-600 border-2 border-red-400" : "bg-white border border-gray-200 text-gray-500"}`}>↓ Despesa</button>
             </div></div>
           <div><label className="text-xs text-gray-500 block mb-1">Valor (R$)</label>
-            <input type="text" inputMode="decimal" value={valor} onChange={e => setValor(e.target.value)}
-              className={`w-full border rounded-xl px-4 py-3 text-lg font-semibold bg-white ${erros.valor ? "border-red-400" : "border-gray-200"}`} placeholder="0,00"/>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg font-semibold text-gray-400">R$</span>
+              <input type="text" inputMode="numeric" value={valor} onChange={e => setValor(mascaraMoeda(e.target.value))}
+              className={`w-full border rounded-xl pl-12 pr-4 py-3 text-lg font-semibold bg-white ${erros.valor ? "border-red-400" : "border-gray-200"}`} placeholder="0,00"/>
+            </div>
             {erros.valor && <p className="text-xs text-red-500 mt-1">{erros.valor}</p>}</div>
           <div><label className="text-xs text-gray-500 block mb-1">Categoria</label>
             <div className="flex flex-wrap gap-2">{categorias.map(cat => (
@@ -883,7 +915,7 @@ function Configuracoes({ fin }) {
   function iniciarEdicao(campo, val) { setEditando(campo); setValorEdit(val); }
   function salvarEdicao() {
     if (editando === "nome") fin.salvarConfig({ nome: valorEdit });
-    else if (editando === "cnpj") fin.salvarConfig({ cnpj: valorEdit });
+    else if (editando === "cnpj") fin.salvarConfig({ cnpj: mascaraCNPJ(valorEdit) });
     else if (editando === "limiteAnual") fin.salvarConfig({ limiteAnual: parseFloat(valorEdit) || 81000 });
     else if (editando === "diaDAS") fin.salvarConfig({ diaDAS: parseInt(valorEdit) || 20 });
     setEditando(null);
@@ -911,7 +943,7 @@ function Configuracoes({ fin }) {
 
   const campos = [
     { id: "nome", rotulo: "Nome do MEI", valor: fin.config.nome || "Toque para configurar" },
-    { id: "cnpj", rotulo: "CNPJ", valor: fin.config.cnpj || "00.000.000/0001-00" },
+    { id: "cnpj", rotulo: "CNPJ", valor: fin.config.cnpj ? mascaraCNPJ(fin.config.cnpj) : "Toque para configurar" },
     { id: "limiteAnual", rotulo: "Limite anual", valor: fmt(fin.config.limiteAnual) },
     { id: "diaDAS", rotulo: "Dia do DAS", valor: String(fin.config.diaDAS) },
   ];
@@ -927,8 +959,12 @@ function Configuracoes({ fin }) {
             <div className="bg-white border-2 border-emerald-400 rounded-xl p-4 shadow-sm">
               <p className="text-xs text-emerald-600 mb-1">{c.rotulo}</p>
               <input type={c.id === "limiteAnual" || c.id === "diaDAS" ? "number" : "text"}
-                value={valorEdit} onChange={e => setValorEdit(e.target.value)} autoFocus
+                inputMode={c.id === "cnpj" ? "numeric" : undefined}
+                value={valorEdit}
+                onChange={e => setValorEdit(c.id === "cnpj" ? mascaraCNPJ(e.target.value) : e.target.value)}
+                autoFocus
                 className="w-full text-sm font-medium text-gray-800 border-b border-gray-200 pb-1 outline-none focus:border-emerald-400"
+                placeholder={c.id === "cnpj" ? "00.000.000/0001-00" : ""}
                 onKeyDown={e => { if (e.key === "Enter") salvarEdicao(); }}/>
               <div className="flex gap-2 mt-3">
                 <button onClick={salvarEdicao} className="flex-1 bg-emerald-600 text-white py-2 rounded-lg text-xs font-medium">Salvar</button>
@@ -1019,13 +1055,119 @@ function Configuracoes({ fin }) {
 // ============================================================
 // APP
 // ============================================================
+// ============================================================
+// ONBOARDING (primeira vez)
+// ============================================================
+function Onboarding({ onConcluir }) {
+  const [passo, setPasso] = useState(0);
+  const [nome, setNome] = useState("");
+  const [cnpj, setCnpj] = useState("");
+
+  const passos = [
+    // Passo 0: Boas-vindas
+    () => (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-emerald-600 text-white px-8 text-center">
+        <div className="w-20 h-20 bg-white/20 rounded-2xl flex items-center justify-center mb-6">
+          <span className="text-4xl font-bold text-white">$</span>
+        </div>
+        <h1 className="text-3xl font-bold">MEI Dinheiro Verde</h1>
+        <p className="text-emerald-100 mt-3 text-base leading-relaxed">O app financeiro que entende de MEI</p>
+        <div className="mt-8 space-y-3 text-left w-full">
+          {["Controle receitas e despesas", "Acompanhe seu limite de R$ 81 mil", "Nunca esqueça o DAS", "Gere pacote para o contador"].map((t, i) => (
+            <div key={i} className="flex items-center gap-3 bg-white/10 rounded-xl px-4 py-3">
+              <Ic.Check s={16} c="#a7f3d0"/>
+              <p className="text-sm text-emerald-50">{t}</p>
+            </div>
+          ))}
+        </div>
+        <button onClick={() => setPasso(1)}
+          className="mt-8 w-full bg-white text-emerald-700 py-4 rounded-xl font-semibold text-base active:bg-emerald-50 transition-colors">
+          Começar
+        </button>
+      </div>
+    ),
+
+    // Passo 1: Nome
+    () => (
+      <div className="flex flex-col justify-center min-h-screen bg-gray-50 px-8">
+        <p className="text-sm text-emerald-600 font-medium">Passo 1 de 3</p>
+        <h2 className="text-2xl font-bold text-gray-900 mt-2">Como podemos te chamar?</h2>
+        <p className="text-sm text-gray-500 mt-2">Esse nome aparece no seu dashboard.</p>
+        <input type="text" value={nome} onChange={e => setNome(e.target.value)} autoFocus placeholder="Seu nome ou nome do negócio"
+          className="mt-6 w-full border border-gray-200 rounded-xl px-4 py-4 text-base bg-white outline-none focus:border-emerald-400"
+          onKeyDown={e => { if (e.key === "Enter" && nome.trim()) setPasso(2); }}/>
+        <button onClick={() => setPasso(2)} disabled={!nome.trim()}
+          className={`mt-4 w-full py-4 rounded-xl font-semibold text-base transition-colors ${nome.trim() ? "bg-emerald-600 text-white active:bg-emerald-700" : "bg-gray-200 text-gray-400"}`}>
+          Continuar
+        </button>
+        <button onClick={() => setPasso(2)} className="mt-3 text-sm text-gray-400 text-center">Pular</button>
+      </div>
+    ),
+
+    // Passo 2: CNPJ
+    () => (
+      <div className="flex flex-col justify-center min-h-screen bg-gray-50 px-8">
+        <p className="text-sm text-emerald-600 font-medium">Passo 2 de 3</p>
+        <h2 className="text-2xl font-bold text-gray-900 mt-2">Qual seu CNPJ?</h2>
+        <p className="text-sm text-gray-500 mt-2">Opcional — ajuda a organizar seus dados.</p>
+        <input type="text" inputMode="numeric" value={cnpj} onChange={e => setCnpj(mascaraCNPJ(e.target.value))} placeholder="00.000.000/0001-00"
+          className="mt-6 w-full border border-gray-200 rounded-xl px-4 py-4 text-base bg-white outline-none focus:border-emerald-400 tracking-wide"
+          onKeyDown={e => { if (e.key === "Enter") setPasso(3); }}/>
+        <button onClick={() => setPasso(3)}
+          className="mt-4 w-full bg-emerald-600 text-white py-4 rounded-xl font-semibold text-base active:bg-emerald-700">
+          Continuar
+        </button>
+        <button onClick={() => setPasso(3)} className="mt-3 text-sm text-gray-400 text-center">Pular</button>
+      </div>
+    ),
+
+    // Passo 3: Pronto!
+    () => (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 px-8 text-center">
+        <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mb-6">
+          <Ic.Check s={40} c="#059669"/>
+        </div>
+        <h2 className="text-2xl font-bold text-gray-900">Tudo pronto, {nome || "MEI"}!</h2>
+        <p className="text-sm text-gray-500 mt-3 leading-relaxed">Agora registre seu primeiro lançamento. Cada receita que você cadastrar aparece no termômetro de faturamento — assim você acompanha o limite de R$ 81 mil em tempo real.</p>
+
+        <div className="mt-6 bg-amber-50 border border-amber-200 rounded-xl p-4 w-full text-left">
+          <p className="text-sm font-medium text-amber-800">O que é DAS?</p>
+          <p className="text-xs text-amber-700 mt-1 leading-relaxed">É o boleto mensal do MEI (R$ 70-80). Vence todo dia 20. O app te avisa quando está pendente para você não esquecer.</p>
+        </div>
+
+        <button onClick={() => onConcluir(nome, cnpj)}
+          className="mt-8 w-full bg-emerald-600 text-white py-4 rounded-xl font-semibold text-base active:bg-emerald-700 transition-colors">
+          Começar a usar
+        </button>
+      </div>
+    ),
+  ];
+
+  return passos[passo]();
+}
+
+// ============================================================
+// APP
+// ============================================================
 export default function App() {
+  const [onboardingCompleto, setOnboardingCompleto] = useState(() => lerStorage("mei_onboarding_done", false));
   const [pagina, setPagina] = useState("dashboard");
   const [lancParaEditar, setLancParaEditar] = useState(null);
   const [relFiltro, setRelFiltro] = useState(null);
   const fin = useFinancas();
   const arq = useArquivos();
   const nav = useMesNavegacao();
+
+  function concluirOnboarding(nome, cnpj) {
+    if (nome.trim()) fin.salvarConfig({ nome: nome.trim() });
+    if (cnpj.trim()) fin.salvarConfig({ cnpj: mascaraCNPJ(cnpj) });
+    salvarStorage("mei_onboarding_done", true);
+    setOnboardingCompleto(true);
+  }
+
+  if (!onboardingCompleto) {
+    return <div className="max-w-md mx-auto min-h-screen"><Onboarding onConcluir={concluirOnboarding}/></div>;
+  }
 
   function navegar(p, dados) {
     if (p === "editar" && dados) { setLancParaEditar(dados); setPagina("editar"); }
