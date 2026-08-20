@@ -3,8 +3,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 // ============================================================
 // CONSTANTES
 // ============================================================
-const CATEGORIAS_RECEITA = ["Vendas", "Serviços Prestados", "Comissões", "Outros"];
-const CATEGORIAS_DESPESA = ["Material", "Transporte", "Alimentação", "Internet / Telefone", "Aluguel", "Marketing", "Contador", "DAS - Simples Nacional", "Outros"];
+const CATEGORIAS_RECEITA_PADRAO = ["Vendas", "Serviços Prestados", "Comissões", "Outros"];
+const CATEGORIAS_DESPESA_PADRAO = ["Material", "Transporte", "Alimentação", "Internet / Telefone", "Aluguel", "Marketing", "Contador", "DAS - Simples Nacional", "Outros"];
 const MESES_NOME = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
 
 // ============================================================
@@ -18,7 +18,11 @@ function salvarStorage(chave, dados) { localStorage.setItem(chave, JSON.stringif
 function useFinancas() {
   const [lancamentos, setLancamentos] = useState([]);
   const [registrosDAS, setRegistrosDAS] = useState([]);
-  const [config, setConfig] = useState(() => lerStorage("mei_config", { nome: "", cnpj: "", limiteAnual: 81000, diaDAS: 20 }));
+  const [config, setConfig] = useState(() => lerStorage("mei_config", {
+    nome: "", cnpj: "", limiteAnual: 81000, diaDAS: 20,
+    categoriasReceita: CATEGORIAS_RECEITA_PADRAO,
+    categoriasDespesa: CATEGORIAS_DESPESA_PADRAO,
+  }));
 
   useEffect(() => {
     setLancamentos(lerStorage("mei_lancamentos", []));
@@ -271,8 +275,8 @@ function Dashboard({ fin, nav, onNav }) {
         <p className="text-emerald-100 text-sm">Saldo do mês</p>
         <p className="text-3xl font-bold mt-1">{fmt(saldo)}</p>
         <div className="flex justify-between mt-4 text-sm">
-          <div><p className="text-emerald-200">Receitas</p><p className="font-semibold">{fmt(receitas)}</p></div>
-          <div><p className="text-emerald-200">Despesas</p><p className="font-semibold">{fmt(despesas)}</p></div>
+          <div onClick={() => onNav("relatorios-rec")} className="cursor-pointer active:opacity-70"><p className="text-emerald-200">Receitas ›</p><p className="font-semibold">{fmt(receitas)}</p></div>
+          <div onClick={() => onNav("relatorios-desp")} className="cursor-pointer active:opacity-70"><p className="text-emerald-200">Despesas ›</p><p className="font-semibold">{fmt(despesas)}</p></div>
         </div>
       </div>
 
@@ -451,7 +455,9 @@ function NovoLancamento({ fin, arq, onVoltar, modoInicial, lancamentoEditando })
   const [dasArquivoFile, setDasArquivoFile] = useState(null);
   const [salvo, setSalvo] = useState(false);
   const [erros, setErros] = useState({});
-  const categorias = tipo === "receita" ? CATEGORIAS_RECEITA : CATEGORIAS_DESPESA;
+  const categorias = tipo === "receita"
+    ? (fin.config.categoriasReceita || CATEGORIAS_RECEITA_PADRAO)
+    : (fin.config.categoriasDespesa || CATEGORIAS_DESPESA_PADRAO);
   useEffect(() => { setCategoria(categorias[0]); }, [tipo]);
 
   function salvar() {
@@ -590,8 +596,11 @@ function GraficoPizza({ dados, tamanho = 180 }) {
 // ============================================================
 // RELATÓRIOS
 // ============================================================
-function Relatorios({ fin, nav }) {
+function Relatorios({ fin, nav, filtroInicial }) {
   const [pacoteGerado, setPacoteGerado] = useState(false);
+  const [evolucaoCat, setEvolucaoCat] = useState(null);
+  const despRef = useRef(null);
+  const recRef = useRef(null);
   const lancs = fin.lancamentosDoMesAno(nav.mes, nav.ano);
   const receitas = fin.receitasDoMesAno(nav.mes, nav.ano);
   const despesas = fin.despesasDoMesAno(nav.mes, nav.ano);
@@ -602,9 +611,38 @@ function Relatorios({ fin, nav }) {
   const dadosRec = Object.entries(recPorCat).sort(([,a],[,b]) => b - a).map(([categoria, valor]) => ({ categoria, valor }));
   const comAnexo = lancs.filter(l => l.arquivoId);
 
-  // Projeção fluxo de caixa
   const mesesRestantes = Math.max(1, 12 - nav.mes);
   const saldoLimite = fin.config.limiteAnual - fin.faturamentoAnual;
+
+  // Scroll automático quando vem do Dashboard
+  useEffect(() => {
+    setTimeout(() => {
+      if (filtroInicial === "despesa" && despRef.current) despRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+      if (filtroInicial === "receita" && recRef.current) recRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 100);
+  }, [filtroInicial]);
+
+  // Evolução mensal: últimos 6 meses de uma categoria
+  const dadosEvolucao = evolucaoCat ? (() => {
+    const meses = [];
+    for (let i = 5; i >= 0; i--) {
+      let m = nav.mes - i;
+      let a = nav.ano;
+      while (m < 0) { m += 12; a--; }
+      const total = fin.lancamentosDoMesAno(m, a)
+        .filter(l => l.categoria === evolucaoCat.categoria && l.tipo === evolucaoCat.tipo)
+        .reduce((s, l) => s + l.valor, 0);
+      meses.push({ mes: MESES_NOME[m].slice(0, 3), ano: a, total });
+    }
+    return meses;
+  })() : [];
+  const maxEvolucao = Math.max(...dadosEvolucao.map(d => d.total), 1);
+
+  // Todas as categorias usadas para o seletor de evolução
+  const todasCategorias = [...new Set(fin.lancamentos.map(l => `${l.tipo}:${l.categoria}`))].map(c => {
+    const [tipo, categoria] = c.split(":");
+    return { tipo, categoria };
+  });
 
   return (
     <div className="px-5 pt-6 pb-24">
@@ -616,15 +654,54 @@ function Relatorios({ fin, nav }) {
         <div className="bg-red-50 rounded-2xl p-4 text-center"><p className="text-xs text-red-500">Despesas</p><p className="text-lg font-bold text-red-600 mt-1">{fmt(despesas)}</p></div>
       </div>
 
-      {dadosDesp.length > 0 && <div className="mt-4 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm"><p className="text-sm font-medium text-gray-700 mb-4">Despesas por categoria</p><GraficoPizza dados={dadosDesp}/></div>}
-      {dadosRec.length > 0 && <div className="mt-4 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm"><p className="text-sm font-medium text-gray-700 mb-4">Receitas por categoria</p><GraficoPizza dados={dadosRec}/></div>}
+      {dadosDesp.length > 0 && <div ref={despRef} className={`mt-4 bg-white rounded-2xl border p-5 shadow-sm ${filtroInicial === "despesa" ? "border-red-300 ring-2 ring-red-100" : "border-gray-100"}`}><p className="text-sm font-medium text-gray-700 mb-4">Despesas por categoria</p><GraficoPizza dados={dadosDesp}/></div>}
+      {dadosRec.length > 0 && <div ref={recRef} className={`mt-4 bg-white rounded-2xl border p-5 shadow-sm ${filtroInicial === "receita" ? "border-emerald-300 ring-2 ring-emerald-100" : "border-gray-100"}`}><p className="text-sm font-medium text-gray-700 mb-4">Receitas por categoria</p><GraficoPizza dados={dadosRec}/></div>}
 
-      {/* Projeção / Fluxo de caixa */}
+      {/* Evolução mensal */}
+      <div className="mt-4 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+        <p className="text-sm font-medium text-gray-700 mb-3">Evolução mensal</p>
+        {!evolucaoCat ? (
+          <div>
+            <p className="text-xs text-gray-500 mb-3">Escolha uma categoria para ver a evolução dos últimos 6 meses:</p>
+            <div className="flex flex-wrap gap-2">
+              {todasCategorias.map((c, i) => (
+                <button key={i} onClick={() => setEvolucaoCat(c)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all active:scale-95 ${c.tipo === "receita" ? "border-emerald-200 text-emerald-700 bg-emerald-50" : "border-red-200 text-red-600 bg-red-50"}`}>
+                  {c.categoria}
+                </button>
+              ))}
+            </div>
+            {todasCategorias.length === 0 && <p className="text-xs text-gray-400 text-center py-4">Registre lançamentos para acompanhar a evolução</p>}
+          </div>
+        ) : (
+          <div>
+            <div className="flex justify-between items-center mb-4">
+              <p className="text-xs text-gray-600">
+                <span className={`inline-block w-2 h-2 rounded-full mr-1 ${evolucaoCat.tipo === "receita" ? "bg-emerald-500" : "bg-red-500"}`}/>
+                {evolucaoCat.categoria}
+              </p>
+              <button onClick={() => setEvolucaoCat(null)} className="text-xs text-emerald-600 font-medium">Trocar</button>
+            </div>
+            <div className="flex items-end gap-2 h-32">
+              {dadosEvolucao.map((d, i) => (
+                <div key={i} className="flex-1 flex flex-col items-center justify-end h-full">
+                  <p className="text-[10px] font-semibold text-gray-700 mb-1">{d.total > 0 ? fmt(d.total) : ""}</p>
+                  <div className={`w-full rounded-t-md transition-all duration-500 ${evolucaoCat.tipo === "receita" ? "bg-emerald-400" : "bg-red-400"}`}
+                    style={{ height: `${Math.max((d.total / maxEvolucao) * 100, d.total > 0 ? 8 : 2)}%`, minHeight: "2px" }}/>
+                  <p className="text-[10px] text-gray-400 mt-1">{d.mes}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Projeção */}
       {nav.isAtual && (
         <div className="mt-4 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
           <p className="text-sm font-medium text-gray-700 mb-3">Projeção até dezembro</p>
           <div className="space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-gray-500">Faturamento restante disponível</span><span className="font-semibold text-emerald-600">{fmt(saldoLimite)}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Faturamento restante</span><span className="font-semibold text-emerald-600">{fmt(saldoLimite)}</span></div>
             <div className="flex justify-between"><span className="text-gray-500">Máximo por mês ({mesesRestantes} meses)</span><span className="font-semibold text-gray-800">{fmt(saldoLimite / mesesRestantes)}</span></div>
             {fin.custoFixoMensal > 0 && (
               <>
@@ -655,6 +732,111 @@ function Relatorios({ fin, nav }) {
       </div>
 
       {lancs.length === 0 && <div className="mt-10 text-center"><p className="text-gray-400 text-sm">Registre lançamentos para ver relatórios</p></div>}
+    </div>
+  );
+}
+
+// ============================================================
+// CONFIGURAÇÕES
+// ============================================================
+// ============================================================
+// EDITOR DE CATEGORIAS
+// ============================================================
+function EditorCategorias({ titulo, categorias, onSalvar, cor }) {
+  const [aberto, setAberto] = useState(false);
+  const [nova, setNova] = useState("");
+  const [editandoIdx, setEditandoIdx] = useState(null);
+  const [editandoVal, setEditandoVal] = useState("");
+
+  function adicionar() {
+    const nome = nova.trim();
+    if (!nome || categorias.includes(nome)) return;
+    onSalvar([...categorias, nome]);
+    setNova("");
+  }
+
+  function remover(idx) {
+    if (categorias.length <= 1) return;
+    onSalvar(categorias.filter((_, i) => i !== idx));
+  }
+
+  function iniciarEdicao(idx) {
+    setEditandoIdx(idx);
+    setEditandoVal(categorias[idx]);
+  }
+
+  function salvarEdicao() {
+    const nome = editandoVal.trim();
+    if (!nome) { setEditandoIdx(null); return; }
+    onSalvar(categorias.map((c, i) => i === editandoIdx ? nome : c));
+    setEditandoIdx(null);
+  }
+
+  function mover(idx, direcao) {
+    const novas = [...categorias];
+    const novoIdx = idx + direcao;
+    if (novoIdx < 0 || novoIdx >= novas.length) return;
+    [novas[idx], novas[novoIdx]] = [novas[novoIdx], novas[idx]];
+    onSalvar(novas);
+  }
+
+  const corBg = cor === "emerald" ? "bg-emerald-50" : "bg-red-50";
+  const corBorder = cor === "emerald" ? "border-emerald-200" : "border-red-200";
+  const corText = cor === "emerald" ? "text-emerald-700" : "text-red-600";
+  const corBtn = cor === "emerald" ? "bg-emerald-600" : "bg-red-500";
+
+  return (
+    <div className="mt-6">
+      <button onClick={() => setAberto(!aberto)} className="flex items-center justify-between w-full">
+        <h2 className="text-lg font-semibold text-gray-900">{titulo}</h2>
+        <span className={`text-xs ${corText} font-medium`}>{aberto ? "Fechar" : "Editar"} ({categorias.length})</span>
+      </button>
+
+      {aberto && (
+        <div className={`mt-3 ${corBg} border ${corBorder} rounded-2xl p-4`}>
+          {/* Lista de categorias */}
+          <div className="space-y-2">
+            {categorias.map((cat, idx) => (
+              <div key={idx} className="flex items-center gap-2 bg-white rounded-xl px-3 py-2 shadow-sm">
+                {editandoIdx === idx ? (
+                  <>
+                    <input value={editandoVal} onChange={e => setEditandoVal(e.target.value)} autoFocus
+                      className="flex-1 text-sm outline-none border-b border-gray-300 focus:border-emerald-400 pb-0.5"
+                      onKeyDown={e => { if (e.key === "Enter") salvarEdicao(); if (e.key === "Escape") setEditandoIdx(null); }}/>
+                    <button onClick={salvarEdicao} className="text-emerald-600 text-xs font-medium">OK</button>
+                    <button onClick={() => setEditandoIdx(null)} className="text-gray-400 text-xs">✕</button>
+                  </>
+                ) : (
+                  <>
+                    <span className="flex-1 text-sm text-gray-800">{cat}</span>
+                    <button onClick={() => mover(idx, -1)} className="text-gray-300 active:text-gray-600 text-xs p-1">▲</button>
+                    <button onClick={() => mover(idx, 1)} className="text-gray-300 active:text-gray-600 text-xs p-1">▼</button>
+                    <button onClick={() => iniciarEdicao(idx)} className="text-gray-400 active:text-emerald-600 p-1"><Ic.Edit s={12}/></button>
+                    <button onClick={() => remover(idx)} className="text-gray-300 active:text-red-500 p-1"><Ic.Trash s={12}/></button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Adicionar nova */}
+          <div className="flex gap-2 mt-3">
+            <input value={nova} onChange={e => setNova(e.target.value)} placeholder="Nova categoria..."
+              className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white outline-none focus:border-emerald-400"
+              onKeyDown={e => { if (e.key === "Enter") adicionar(); }}/>
+            <button onClick={adicionar}
+              className={`${corBtn} text-white px-4 py-2 rounded-lg text-sm font-medium active:opacity-80`}>+</button>
+          </div>
+
+          {/* Restaurar padrão */}
+          <button onClick={() => {
+              onSalvar(cor === "emerald" ? CATEGORIAS_RECEITA_PADRAO : CATEGORIAS_DESPESA_PADRAO);
+            }}
+            className="w-full mt-3 text-xs text-gray-400 active:text-gray-600 text-center py-1">
+            Restaurar categorias padrão
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -733,6 +915,20 @@ function Configuracoes({ fin }) {
         ))}
       </div>
 
+      {/* Editor de Categorias */}
+      <EditorCategorias
+        titulo="Categorias de Receita"
+        categorias={fin.config.categoriasReceita || CATEGORIAS_RECEITA_PADRAO}
+        onSalvar={(cats) => fin.salvarConfig({ categoriasReceita: cats })}
+        cor="emerald"
+      />
+      <EditorCategorias
+        titulo="Categorias de Despesa"
+        categorias={fin.config.categoriasDespesa || CATEGORIAS_DESPESA_PADRAO}
+        onSalvar={(cats) => fin.salvarConfig({ categoriasDespesa: cats })}
+        cor="red"
+      />
+
       {dasHistorico.length > 0 && (
         <div className="mt-6"><h2 className="text-lg font-semibold text-gray-900 mb-3">Histórico DAS</h2>
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -790,13 +986,16 @@ function Configuracoes({ fin }) {
 export default function App() {
   const [pagina, setPagina] = useState("dashboard");
   const [lancParaEditar, setLancParaEditar] = useState(null);
+  const [relFiltro, setRelFiltro] = useState(null);
   const fin = useFinancas();
   const arq = useArquivos();
   const nav = useMesNavegacao();
 
   function navegar(p, dados) {
     if (p === "editar" && dados) { setLancParaEditar(dados); setPagina("editar"); }
-    else { setLancParaEditar(null); setPagina(p); }
+    else if (p === "relatorios-desp") { setRelFiltro("despesa"); setPagina("relatorios"); }
+    else if (p === "relatorios-rec") { setRelFiltro("receita"); setPagina("relatorios"); }
+    else { setLancParaEditar(null); setRelFiltro(null); setPagina(p); }
     window.scrollTo(0, 0);
   }
 
@@ -807,7 +1006,7 @@ export default function App() {
       case "novo": return <NovoLancamento fin={fin} arq={arq} onVoltar={() => navegar("lancamentos")}/>;
       case "editar": return <NovoLancamento fin={fin} arq={arq} onVoltar={() => navegar("lancamentos")} lancamentoEditando={lancParaEditar}/>;
       case "novo-das": return <NovoLancamento fin={fin} arq={arq} onVoltar={() => navegar("dashboard")} modoInicial="das"/>;
-      case "relatorios": return <Relatorios fin={fin} nav={nav}/>;
+      case "relatorios": return <Relatorios fin={fin} nav={nav} filtroInicial={relFiltro}/>;
       case "config": return <Configuracoes fin={fin}/>;
       default: return <Dashboard fin={fin} nav={nav} onNav={navegar}/>;
     }
