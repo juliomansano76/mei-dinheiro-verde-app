@@ -296,6 +296,174 @@ function BotaoAnexo({ arquivo, onAnexar, onRemover }) {
 }
 
 // ============================================================
+// ASSISTENTE FINANCEIRO CONTEXTUAL
+// ============================================================
+function AssistenteFinanceiro({ fin, nav, receitas, despesas, saldo }) {
+  const mensagens = [];
+  const hoje = new Date();
+  const diaHoje = hoje.getDate();
+  const mesAtual = hoje.getMonth();
+  const anoAtual = hoje.getFullYear();
+  const mesesPassados = mesAtual + 1;
+  const mesesRestantes = Math.max(1, 12 - mesAtual);
+  const saldoLimite = fin.config.limiteAnual - fin.faturamentoAnual;
+
+  // 1. Projeção de faturamento anual
+  if (fin.faturamentoAnual > 0 && mesesPassados >= 2) {
+    const mediaMensal = fin.faturamentoAnual / mesesPassados;
+    const projecaoAnual = mediaMensal * 12;
+    if (projecaoAnual > fin.config.limiteAnual) {
+      const mesEstouro = Math.ceil(fin.config.limiteAnual / mediaMensal);
+      const nomeMesEstouro = MESES_NOME[Math.min(mesEstouro - 1, 11)];
+      mensagens.push({
+        tipo: "vermelho",
+        icone: "🚨",
+        titulo: "Risco de desenquadramento",
+        texto: `Seu faturamento médio é ${fmt(mediaMensal)}/mês. Nesse ritmo, você ultrapassa o limite em ${nomeMesEstouro}. Considere virar ME ou reduzir o faturamento.`,
+      });
+    } else if (projecaoAnual > fin.config.limiteAnual * 0.85) {
+      mensagens.push({
+        tipo: "amarelo",
+        icone: "⚡",
+        titulo: "Fique atento ao limite",
+        texto: `Projeção anual: ${fmt(projecaoAnual)}. Está chegando perto dos ${fmt(fin.config.limiteAnual)}. Pode faturar até ${fmt(saldoLimite / mesesRestantes)}/mês até dezembro.`,
+      });
+    } else {
+      mensagens.push({
+        tipo: "verde",
+        icone: "✅",
+        titulo: "Faturamento tranquilo",
+        texto: `Projeção anual: ${fmt(projecaoAnual)}. Você está dentro do limite com folga.`,
+      });
+    }
+  }
+
+  // 2. Comparativo com mês anterior
+  const mesAnterior = mesAtual === 0 ? 11 : mesAtual - 1;
+  const anoMesAnterior = mesAtual === 0 ? anoAtual - 1 : anoAtual;
+  const receitasAnterior = fin.receitasDoMesAno(mesAnterior, anoMesAnterior);
+  if (receitasAnterior > 0 && receitas > 0) {
+    const variacao = ((receitas - receitasAnterior) / receitasAnterior) * 100;
+    if (Math.abs(variacao) >= 10) {
+      mensagens.push({
+        tipo: variacao > 0 ? "verde" : "amarelo",
+        icone: variacao > 0 ? "📈" : "📉",
+        titulo: variacao > 0 ? "Receita crescendo" : "Receita caiu",
+        texto: variacao > 0
+          ? `Suas receitas subiram ${Math.round(variacao)}% em relação a ${MESES_NOME[mesAnterior].toLowerCase()}.`
+          : `Suas receitas caíram ${Math.round(Math.abs(variacao))}% em relação a ${MESES_NOME[mesAnterior].toLowerCase()}.`,
+      });
+    }
+  }
+
+  // 3. Análise de custos fixos vs receita
+  if (fin.custoFixoMensal > 0 && receitas > 0) {
+    const percentualFixo = (fin.custoFixoMensal / receitas) * 100;
+    if (percentualFixo > 70) {
+      mensagens.push({
+        tipo: "vermelho",
+        icone: "💸",
+        titulo: "Custos fixos altos",
+        texto: `Seus custos fixos (${fmt(fin.custoFixoMensal)}) consomem ${Math.round(percentualFixo)}% da receita. Sobra pouco para imprevistos.`,
+      });
+    } else if (percentualFixo > 50) {
+      mensagens.push({
+        tipo: "amarelo",
+        icone: "📊",
+        titulo: "Atenção aos custos",
+        texto: `Custos fixos representam ${Math.round(percentualFixo)}% da receita. O ideal é manter abaixo de 50%.`,
+      });
+    }
+  }
+
+  // 4. DAS com contagem regressiva
+  const diaDAS = fin.config.diaDAS || 20;
+  const mesAtualStr = `${anoAtual}-${String(mesAtual + 1).padStart(2, "0")}`;
+  const dasDoMes = fin.registrosDAS.find(d => d.mesReferencia === mesAtualStr);
+  if (!dasDoMes || dasDoMes.status !== "pago") {
+    const diasParaDAS = diaDAS - diaHoje;
+    if (diasParaDAS > 0 && diasParaDAS <= 5) {
+      mensagens.push({
+        tipo: "amarelo",
+        icone: "⏰",
+        titulo: `DAS vence em ${diasParaDAS} dia${diasParaDAS > 1 ? "s" : ""}`,
+        texto: `O boleto do Simples Nacional vence dia ${diaDAS}. Pague para manter seu INSS em dia.`,
+      });
+    } else if (diasParaDAS <= 0 && diasParaDAS >= -10) {
+      mensagens.push({
+        tipo: "vermelho",
+        icone: "🚨",
+        titulo: "DAS vencido!",
+        texto: `O DAS venceu há ${Math.abs(diasParaDAS)} dia${Math.abs(diasParaDAS) > 1 ? "s" : ""}. Pague o quanto antes para evitar multa e juros.`,
+      });
+    }
+  }
+
+  // 5. Saldo negativo
+  if (saldo < 0 && receitas > 0) {
+    mensagens.push({
+      tipo: "vermelho",
+      icone: "🔴",
+      titulo: "Mês no vermelho",
+      texto: `Suas despesas superaram as receitas em ${fmt(Math.abs(saldo))}. Revise seus gastos.`,
+    });
+  }
+
+  // 6. Incentivo quando começa a usar
+  if (fin.lancamentos.length > 0 && fin.lancamentos.length <= 5) {
+    mensagens.push({
+      tipo: "azul",
+      icone: "💡",
+      titulo: "Dica",
+      texto: "Registre todas as receitas para o termômetro calcular seu limite anual corretamente. Quanto mais completo, melhor a projeção.",
+    });
+  }
+
+  // Limita a 3 mensagens mais relevantes (prioridade: vermelho > amarelo > verde > azul)
+  const prioridade = { vermelho: 0, amarelo: 1, verde: 2, azul: 3 };
+  const exibir = mensagens
+    .sort((a, b) => prioridade[a.tipo] - prioridade[b.tipo])
+    .slice(0, 3);
+
+  if (exibir.length === 0) return null;
+
+  const cores = {
+    vermelho: "bg-red-50 border-red-200",
+    amarelo: "bg-amber-50 border-amber-200",
+    verde: "bg-emerald-50 border-emerald-200",
+    azul: "bg-blue-50 border-blue-200",
+  };
+  const coresTitulo = {
+    vermelho: "text-red-800",
+    amarelo: "text-amber-800",
+    verde: "text-emerald-800",
+    azul: "text-blue-800",
+  };
+  const coresTexto = {
+    vermelho: "text-red-600",
+    amarelo: "text-amber-600",
+    verde: "text-emerald-600",
+    azul: "text-blue-600",
+  };
+
+  return (
+    <div className="mt-4 space-y-3">
+      {exibir.map((msg, i) => (
+        <div key={i} className={`${cores[msg.tipo]} border rounded-2xl p-4`}>
+          <div className="flex items-start gap-3">
+            <span className="text-lg leading-none mt-0.5">{msg.icone}</span>
+            <div>
+              <p className={`text-sm font-medium ${coresTitulo[msg.tipo]}`}>{msg.titulo}</p>
+              <p className={`text-xs ${coresTexto[msg.tipo]} mt-1 leading-relaxed`}>{msg.texto}</p>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ============================================================
 // DASHBOARD
 // ============================================================
 function Dashboard({ fin, nav, onNav }) {
@@ -349,6 +517,9 @@ function Dashboard({ fin, nav, onNav }) {
           <p className="text-xs text-red-500 font-medium mt-2">⚠ Atenção: próximo do limite de desenquadramento!</p>
         )}
       </div>
+
+      {/* Assistente financeiro contextual */}
+      {nav.isAtual && <AssistenteFinanceiro fin={fin} nav={nav} receitas={receitas} despesas={despesas} saldo={saldo}/>}
 
       {/* DAS */}
       {nav.isAtual && (
