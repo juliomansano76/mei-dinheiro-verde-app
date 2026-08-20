@@ -872,8 +872,367 @@ function GraficoPizza({ dados, tamanho = 160 }) {
 // ============================================================
 // RELATÓRIOS
 // ============================================================
-function Relatorios({ fin, nav, filtroInicial }) {
-  const [pacoteGerado, setPacoteGerado] = useState(false);
+// ============================================================
+// PACOTE DO CONTADOR — PDF real
+// ============================================================
+async function carregarJsPDF() {
+  if (window.jspdf) return window.jspdf.jsPDF;
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js";
+    s.onload = () => resolve(window.jspdf.jsPDF);
+    s.onerror = () => reject(new Error("Erro ao carregar gerador de PDF"));
+    document.head.appendChild(s);
+  });
+}
+
+function PacoteContador({ fin, nav, lancs, receitas, despesas, comAnexo, arq }) {
+  const [status, setStatus] = useState("idle"); // idle | gerando | pronto | erro
+
+  // Carrega imagem de uma URL blob e retorna dataURL
+  function carregarImagem(url) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width;
+        canvas.height = img.height;
+        canvas.getContext("2d").drawImage(img, 0, 0);
+        try { resolve({ dataUrl: canvas.toDataURL("image/jpeg", 0.85), w: img.width, h: img.height }); }
+        catch { resolve(null); }
+      };
+      img.onerror = () => resolve(null);
+      img.src = url;
+    });
+  }
+
+  async function gerarPDF() {
+    setStatus("gerando");
+    try {
+      const jsPDF = await carregarJsPDF();
+      const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const pw = doc.internal.pageSize.getWidth();
+      const margem = 20;
+      const largura = pw - margem * 2;
+      let y = 20;
+
+      const nomeMEI = fin.config.nome || "MEI";
+      const cnpjMEI = fin.config.cnpj || "Não informado";
+      const mesRef = `${MESES_NOME[nav.mes]} / ${nav.ano}`;
+      const saldo = receitas - despesas;
+
+      // Agrupamento por categoria
+      const recPorCat = {};
+      const despPorCat = {};
+      lancs.forEach(l => {
+        if (l.tipo === "receita") recPorCat[l.categoria] = (recPorCat[l.categoria] || 0) + l.valor;
+        else despPorCat[l.categoria] = (despPorCat[l.categoria] || 0) + l.valor;
+      });
+
+      // DAS do mês
+      const mesStr = `${nav.ano}-${String(nav.mes + 1).padStart(2, "0")}`;
+      const dasDoMes = fin.registrosDAS.find(d => d.mesReferencia === mesStr);
+
+      // Helper para adicionar texto
+      function texto(t, x, tamanho, estilo, cor) {
+        doc.setFontSize(tamanho);
+        doc.setFont("helvetica", estilo || "normal");
+        doc.setTextColor(...(cor || [51, 51, 51]));
+        doc.text(t, x, y);
+      }
+      function linha() {
+        doc.setDrawColor(220, 220, 220);
+        doc.line(margem, y, pw - margem, y);
+        y += 4;
+      }
+      function checkPage(espaco) {
+        if (y + espaco > 280) { doc.addPage(); y = 20; }
+      }
+
+      // ─── CABEÇALHO ───
+      doc.setFillColor(5, 150, 105);
+      doc.rect(0, 0, pw, 40, "F");
+      doc.setFontSize(18);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(255, 255, 255);
+      doc.text("MEI Dinheiro Verde", margem, 18);
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "normal");
+      doc.text(`Relatório Financeiro — ${mesRef}`, margem, 28);
+      doc.setFontSize(9);
+      doc.text(`Gerado em ${new Date().toLocaleDateString("pt-BR")}`, margem, 35);
+      y = 50;
+
+      // ─── DADOS DO MEI ───
+      texto("Dados do MEI", margem, 12, "bold");
+      y += 7;
+      texto(`Nome: ${nomeMEI}`, margem, 10); y += 5;
+      texto(`CNPJ: ${cnpjMEI}`, margem, 10); y += 5;
+      texto(`Limite anual: ${fmt(fin.config.limiteAnual)}`, margem, 10); y += 8;
+      linha();
+
+      // ─── RESUMO FINANCEIRO ───
+      texto("Resumo do Mês", margem, 12, "bold");
+      y += 8;
+
+      // Box receitas
+      doc.setFillColor(236, 253, 245);
+      doc.roundedRect(margem, y, largura / 2 - 2, 18, 3, 3, "F");
+      doc.setFontSize(8); doc.setTextColor(5, 150, 105); doc.setFont("helvetica", "normal");
+      doc.text("RECEITAS", margem + 4, y + 6);
+      doc.setFontSize(12); doc.setFont("helvetica", "bold");
+      doc.text(fmt(receitas), margem + 4, y + 14);
+
+      // Box despesas
+      const xDesp = margem + largura / 2 + 2;
+      doc.setFillColor(254, 242, 242);
+      doc.roundedRect(xDesp, y, largura / 2 - 2, 18, 3, 3, "F");
+      doc.setFontSize(8); doc.setTextColor(220, 38, 38); doc.setFont("helvetica", "normal");
+      doc.text("DESPESAS", xDesp + 4, y + 6);
+      doc.setFontSize(12); doc.setFont("helvetica", "bold");
+      doc.text(fmt(despesas), xDesp + 4, y + 14);
+      y += 24;
+
+      // Saldo
+      doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.setTextColor(100, 100, 100);
+      doc.text("Saldo do mês:", margem, y);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(saldo >= 0 ? 5 : 220, saldo >= 0 ? 150 : 38, saldo >= 0 ? 105 : 38);
+      doc.text(fmt(saldo), margem + 35, y);
+      y += 6;
+
+      // Faturamento anual
+      doc.setFont("helvetica", "normal"); doc.setTextColor(100, 100, 100);
+      doc.text(`Faturamento anual: ${fmt(fin.faturamentoAnual)} de ${fmt(fin.config.limiteAnual)} (${Math.round(fin.percentualFaturamento)}%)`, margem, y);
+      y += 4;
+
+      // Barra de progresso
+      doc.setFillColor(229, 231, 235);
+      doc.roundedRect(margem, y, largura, 4, 2, 2, "F");
+      const pctW = Math.min(fin.percentualFaturamento / 100, 1) * largura;
+      const corBarra = fin.percentualFaturamento > 80 ? [220, 38, 38] : fin.percentualFaturamento > 60 ? [245, 158, 11] : [5, 150, 105];
+      doc.setFillColor(...corBarra);
+      if (pctW > 0) doc.roundedRect(margem, y, pctW, 4, 2, 2, "F");
+      y += 10;
+      linha();
+
+      // ─── DAS ───
+      texto("DAS — Simples Nacional", margem, 12, "bold"); y += 7;
+      if (dasDoMes) {
+        const statusDAS = dasDoMes.status === "pago" ? "✓ Pago" : "✗ Pendente";
+        const corDAS = dasDoMes.status === "pago" ? [5, 150, 105] : [220, 38, 38];
+        texto(`Mês: ${mesRef}`, margem, 10); y += 5;
+        texto(`Valor: ${fmt(dasDoMes.valor)}`, margem, 10); y += 5;
+        doc.setTextColor(...corDAS);
+        texto(`Status: ${statusDAS}`, margem, 10, "bold", corDAS); y += 8;
+      } else {
+        texto("Nenhum registro de DAS para este mês.", margem, 10, "normal", [150, 150, 150]); y += 8;
+      }
+      linha();
+
+      // ─── RECEITAS POR CATEGORIA ───
+      if (Object.keys(recPorCat).length > 0) {
+        checkPage(30);
+        texto("Receitas por Categoria", margem, 12, "bold"); y += 8;
+        Object.entries(recPorCat).sort(([, a], [, b]) => b - a).forEach(([cat, val]) => {
+          checkPage(7);
+          doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.setTextColor(80, 80, 80);
+          doc.text(cat, margem + 2, y);
+          doc.setFont("helvetica", "bold"); doc.setTextColor(5, 150, 105);
+          doc.text(fmt(val), pw - margem, y, { align: "right" });
+          y += 6;
+        });
+        y += 4; linha();
+      }
+
+      // ─── DESPESAS POR CATEGORIA ───
+      if (Object.keys(despPorCat).length > 0) {
+        checkPage(30);
+        texto("Despesas por Categoria", margem, 12, "bold"); y += 8;
+        Object.entries(despPorCat).sort(([, a], [, b]) => b - a).forEach(([cat, val]) => {
+          checkPage(7);
+          doc.setFontSize(10); doc.setFont("helvetica", "normal"); doc.setTextColor(80, 80, 80);
+          doc.text(cat, margem + 2, y);
+          doc.setFont("helvetica", "bold"); doc.setTextColor(220, 38, 38);
+          doc.text(fmt(val), pw - margem, y, { align: "right" });
+          y += 6;
+        });
+        y += 4; linha();
+      }
+
+      // ─── LISTA DETALHADA ───
+      checkPage(20);
+      texto("Lançamentos Detalhados", margem, 12, "bold"); y += 8;
+
+      // Header da tabela
+      doc.setFillColor(245, 245, 245);
+      doc.rect(margem, y - 4, largura, 7, "F");
+      doc.setFontSize(8); doc.setFont("helvetica", "bold"); doc.setTextColor(100, 100, 100);
+      doc.text("Data", margem + 2, y);
+      doc.text("Tipo", margem + 25, y);
+      doc.text("Categoria", margem + 45, y);
+      doc.text("Descrição", margem + 90, y);
+      doc.text("Valor", pw - margem, y, { align: "right" });
+      y += 6;
+
+      const lancOrdenados = [...lancs].sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime());
+      lancOrdenados.forEach((l, i) => {
+        checkPage(7);
+        if (i % 2 === 0) { doc.setFillColor(250, 250, 250); doc.rect(margem, y - 4, largura, 6, "F"); }
+        doc.setFontSize(8); doc.setFont("helvetica", "normal"); doc.setTextColor(80, 80, 80);
+        const dataFmt = new Date(l.data + "T12:00:00").toLocaleDateString("pt-BR");
+        doc.text(dataFmt, margem + 2, y);
+        doc.setTextColor(l.tipo === "receita" ? 5 : 220, l.tipo === "receita" ? 150 : 38, l.tipo === "receita" ? 105 : 38);
+        doc.text(l.tipo === "receita" ? "Receita" : "Despesa", margem + 25, y);
+        doc.setTextColor(80, 80, 80);
+        doc.text((l.categoria || "").substring(0, 22), margem + 45, y);
+        doc.text((l.descricao || "-").substring(0, 25), margem + 90, y);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(l.tipo === "receita" ? 5 : 220, l.tipo === "receita" ? 150 : 38, l.tipo === "receita" ? 105 : 38);
+        doc.text(fmt(l.valor), pw - margem, y, { align: "right" });
+        y += 6;
+      });
+
+      // ─── COMPROVANTES ANEXADOS ───
+      const lancComAnexo = lancs.filter(l => l.arquivoId);
+      const pdfsAnexos = [];
+
+      if (lancComAnexo.length > 0) {
+        doc.addPage();
+        y = 20;
+        doc.setFillColor(5, 150, 105);
+        doc.rect(0, 0, pw, 25, "F");
+        doc.setFontSize(14); doc.setFont("helvetica", "bold"); doc.setTextColor(255, 255, 255);
+        doc.text("Comprovantes Anexados", margem, 17);
+        y = 35;
+
+        for (const l of lancComAnexo) {
+          const arquivo = arq.obterArquivo(l.arquivoId);
+          if (!arquivo) continue;
+
+          if (arquivo.tipo && arquivo.tipo.startsWith("image")) {
+            // Imagem: embutir no PDF
+            const imgData = await carregarImagem(arquivo.url);
+            if (imgData) {
+              checkPage(80);
+              // Título do comprovante
+              doc.setFontSize(9); doc.setFont("helvetica", "bold"); doc.setTextColor(80, 80, 80);
+              const dataFmt = new Date(l.data + "T12:00:00").toLocaleDateString("pt-BR");
+              doc.text(`${l.categoria} — ${dataFmt} — ${fmt(l.valor)}`, margem, y);
+              y += 3;
+              doc.setFontSize(7); doc.setFont("helvetica", "normal"); doc.setTextColor(150, 150, 150);
+              doc.text(arquivo.nome, margem, y);
+              y += 4;
+
+              // Calcular dimensões mantendo proporção
+              const maxW = largura;
+              const maxH = 180;
+              const ratio = Math.min(maxW / imgData.w, maxH / imgData.h);
+              const imgW = imgData.w * ratio;
+              const imgH = imgData.h * ratio;
+
+              if (y + imgH + 10 > 280) { doc.addPage(); y = 20; }
+              doc.addImage(imgData.dataUrl, "JPEG", margem, y, imgW, imgH);
+              y += imgH + 10;
+            }
+          } else {
+            // PDF ou outro: listar referência
+            pdfsAnexos.push({ lancamento: l, arquivo });
+          }
+        }
+
+        // Listar PDFs que não puderam ser embutidos
+        if (pdfsAnexos.length > 0) {
+          checkPage(20);
+          doc.setFontSize(10); doc.setFont("helvetica", "bold"); doc.setTextColor(80, 80, 80);
+          doc.text("Arquivos PDF anexados (enviar separadamente):", margem, y);
+          y += 6;
+          pdfsAnexos.forEach(({ lancamento: l, arquivo: a }) => {
+            checkPage(7);
+            const dataFmt = new Date(l.data + "T12:00:00").toLocaleDateString("pt-BR");
+            doc.setFontSize(8); doc.setFont("helvetica", "normal"); doc.setTextColor(100, 100, 100);
+            doc.text(`• ${a.nome} — ${l.categoria} — ${dataFmt} — ${fmt(l.valor)}`, margem + 2, y);
+            y += 5;
+          });
+        }
+      }
+
+      // ─── RODAPÉ ───
+      const totalPaginas = doc.internal.getNumberOfPages();
+      for (let p = 1; p <= totalPaginas; p++) {
+        doc.setPage(p);
+        doc.setFontSize(7); doc.setFont("helvetica", "normal"); doc.setTextColor(180, 180, 180);
+        doc.text(`MEI Dinheiro Verde — ${mesRef} — Página ${p}/${totalPaginas}`, pw / 2, 290, { align: "center" });
+      }
+
+      // Salvar / compartilhar
+      const nomeArquivo = `MEI-${MESES_NOME[nav.mes]}-${nav.ano}.pdf`;
+      const blob = doc.output("blob");
+
+      // Tenta usar Web Share API (mobile)
+      if (navigator.share && navigator.canShare) {
+        const file = new File([blob], nomeArquivo, { type: "application/pdf" });
+        if (navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({ files: [file], title: `Relatório ${mesRef}`, text: `Pacote financeiro MEI — ${mesRef}` });
+            setStatus("pronto");
+            return;
+          } catch (e) { /* user cancelled share, fall through to download */ }
+        }
+      }
+
+      // Fallback: download direto
+      doc.save(nomeArquivo);
+      setStatus("pronto");
+
+    } catch (err) {
+      console.error("Erro ao gerar PDF:", err);
+      setStatus("erro");
+    }
+  }
+
+  return (
+    <div className="mt-4 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+      <div className="flex items-center gap-3 mb-3">
+        <Ic.Send s={20} c="#059669"/>
+        <p className="text-sm font-medium text-gray-700">Pacote para o Contador</p>
+      </div>
+      <p className="text-xs text-gray-500 mb-1">{lancs.length} lançamento{lancs.length !== 1 ? "s" : ""} no mês</p>
+      <p className="text-xs text-gray-500 mb-3">{comAnexo.length} comprovante{comAnexo.length !== 1 ? "s" : ""} anexado{comAnexo.length !== 1 ? "s" : ""}</p>
+
+      {status === "pronto" ? (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-center">
+          <Ic.Check s={24} c="#059669"/>
+          <p className="text-sm text-emerald-700 font-medium mt-2">PDF gerado com sucesso!</p>
+          <button onClick={() => setStatus("idle")} className="text-xs text-emerald-600 mt-2 underline">Gerar novamente</button>
+        </div>
+      ) : status === "erro" ? (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center">
+          <p className="text-sm text-red-700 font-medium">Erro ao gerar PDF</p>
+          <button onClick={() => setStatus("idle")} className="text-xs text-red-600 mt-2 underline">Tentar novamente</button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <button onClick={gerarPDF} disabled={status === "gerando" || lancs.length === 0}
+            className={`w-full py-3 rounded-xl font-medium text-sm flex items-center justify-center gap-2 transition-all ${lancs.length === 0 ? "bg-gray-200 text-gray-400" : status === "gerando" ? "bg-emerald-400 text-white" : "bg-emerald-600 text-white active:bg-emerald-700 active:scale-[0.98]"}`}>
+            {status === "gerando" ? (
+              <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/> Gerando PDF...</>
+            ) : (
+              <><Ic.File s={16} c="white"/> Gerar PDF do mês</>
+            )}
+          </button>
+          {lancs.length === 0 && <p className="text-xs text-gray-400 text-center">Registre lançamentos para gerar o pacote</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// RELATÓRIOS
+// ============================================================
+function Relatorios({ fin, nav, filtroInicial, arq }) {
   const [evolucaoCat, setEvolucaoCat] = useState(null);
   const despRef = useRef(null);
   const recRef = useRef(null);
@@ -991,21 +1350,7 @@ function Relatorios({ fin, nav, filtroInicial }) {
       )}
 
       {/* Pacote do Contador */}
-      <div className="mt-4 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
-        <div className="flex items-center gap-3 mb-3"><Ic.Send s={20} c="#059669"/><p className="text-sm font-medium text-gray-700">Pacote para o Contador</p></div>
-        <p className="text-xs text-gray-500 mb-1">{lancs.length} lançamento{lancs.length !== 1 ? "s" : ""}</p>
-        <p className="text-xs text-gray-500 mb-3">{comAnexo.length} comprovante{comAnexo.length !== 1 ? "s" : ""}</p>
-        {pacoteGerado ? (
-          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-center">
-            <Ic.Check s={24} c="#059669"/><p className="text-sm text-emerald-700 font-medium mt-2">Pacote gerado!</p>
-            <p className="text-xs text-emerald-600 mt-1">Na versão final: PDF resumo + comprovantes via WhatsApp/e-mail</p>
-          </div>
-        ) : (
-          <button onClick={() => { setPacoteGerado(true); setTimeout(() => setPacoteGerado(false), 3000); }}
-            className="w-full bg-emerald-600 text-white py-3 rounded-xl font-medium text-sm active:bg-emerald-700 active:scale-[0.98] transition-all flex items-center justify-center gap-2">
-            <Ic.Send s={16} c="white"/> Gerar pacote do mês</button>
-        )}
-      </div>
+      <PacoteContador fin={fin} nav={nav} lancs={lancs} receitas={receitas} despesas={despesas} comAnexo={comAnexo} arq={arq}/>
 
       {lancs.length === 0 && <div className="mt-10 text-center"><p className="text-gray-400 text-sm">Registre lançamentos para ver relatórios</p></div>}
     </div>
@@ -1399,7 +1744,7 @@ export default function App() {
       case "novo": return <NovoLancamento fin={fin} arq={arq} onVoltar={() => navegar("lancamentos")}/>;
       case "editar": return <NovoLancamento fin={fin} arq={arq} onVoltar={() => navegar("lancamentos")} lancamentoEditando={lancParaEditar}/>;
       case "novo-das": return <NovoLancamento fin={fin} arq={arq} onVoltar={() => navegar("dashboard")} modoInicial="das"/>;
-      case "relatorios": return <Relatorios fin={fin} nav={nav} filtroInicial={relFiltro}/>;
+      case "relatorios": return <Relatorios fin={fin} nav={nav} filtroInicial={relFiltro} arq={arq}/>;
       case "config": return <Configuracoes fin={fin}/>;
       default: return <Dashboard fin={fin} nav={nav} onNav={navegar}/>;
     }
