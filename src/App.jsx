@@ -795,7 +795,7 @@ function NovoLancamento({ fin, arq, onVoltar, modoInicial, lancamentoEditando })
 // ============================================================
 // GRÁFICO DE PIZZA
 // ============================================================
-function GraficoPizza({ dados, tamanho = 180 }) {
+function GraficoPizza({ dados, tamanho = 160 }) {
   if (!dados.length) return null;
   const total = dados.reduce((s, d) => s + d.valor, 0);
   const cores = ["#059669","#3b82f6","#f59e0b","#8b5cf6","#ec4899","#06b6d4","#ef4444","#6366f1"];
@@ -807,19 +807,30 @@ function GraficoPizza({ dados, tamanho = 180 }) {
     const path = pct >= 0.999 ? "M 50 10 A 40 40 0 1 1 49.99 10 Z" : `M 50 50 L ${x1} ${y1} A 40 40 0 ${a>180?1:0} 1 ${x2} ${y2} Z`;
     return { ...d, cor: cores[i%cores.length], path, pct };
   });
+
+  // Formata valor curto para o centro (sem "R$" se muito grande)
+  const valorCurto = total >= 10000
+    ? `${(total/1000).toFixed(1).replace(".",",")}k`
+    : total.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+
   return (
-    <div className="flex items-center gap-4">
-      <svg width={tamanho} height={tamanho} viewBox="0 0 100 100">
-        {fatias.map((f, i) => <path key={i} d={f.path} fill={f.cor} stroke="white" strokeWidth="1"/>)}
-        <circle cx="50" cy="50" r="22" fill="white"/>
-        <text x="50" y="48" textAnchor="middle" className="text-[8px] font-bold fill-gray-800">{fmt(total)}</text>
-        <text x="50" y="57" textAnchor="middle" className="text-[5px] fill-gray-400">total</text>
-      </svg>
-      <div className="flex-1 space-y-1.5">{fatias.map((f, i) => (
+    <div className="flex items-center gap-5">
+      <div className="relative flex-shrink-0" style={{ width: tamanho, height: tamanho }}>
+        <svg width={tamanho} height={tamanho} viewBox="0 0 100 100">
+          {fatias.map((f, i) => <path key={i} d={f.path} fill={f.cor} stroke="white" strokeWidth="1.5"/>)}
+          <circle cx="50" cy="50" r="24" fill="white"/>
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+          <span className="text-[10px] text-gray-400 leading-none">Total</span>
+          <span className="text-sm font-bold text-gray-800 leading-tight mt-0.5">{fmt(total)}</span>
+        </div>
+      </div>
+      <div className="flex-1 space-y-2">{fatias.map((f, i) => (
         <div key={i} className="flex items-center gap-2">
           <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: f.cor }}/>
           <span className="text-xs text-gray-600 flex-1 truncate">{f.categoria}</span>
-          <span className="text-xs font-medium text-gray-800">{Math.round(f.pct*100)}%</span>
+          <span className="text-xs text-gray-500">{fmt(f.valor)}</span>
+          <span className="text-[11px] font-semibold text-gray-800 w-8 text-right">{Math.round(f.pct*100)}%</span>
         </div>))}</div>
     </div>
   );
