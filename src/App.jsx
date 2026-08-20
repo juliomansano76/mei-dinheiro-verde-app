@@ -48,6 +48,20 @@ function useFinancas() {
   const atualizarStatusDAS = useCallback((id, status) => {
     setRegistrosDAS(prev => { const a = prev.map(d => d.id === id ? { ...d, status } : d); salvarStorage("mei_das", a); return a; });
   }, []);
+
+  // Bug fix: verifica se já existe lançamento de despesa DAS para um mês
+  const existeLancamentoDAS = useCallback((mesRef) => {
+    return lancamentos.some(l => l.categoria === "DAS - Simples Nacional" && l.descricao === `DAS ref. ${mesRef}`);
+  }, [lancamentos]);
+
+  // Remove lançamento DAS de um mês específico (quando muda de pago para pendente)
+  const removerLancamentoDAS = useCallback((mesRef) => {
+    setLancamentos(prev => {
+      const a = prev.filter(l => !(l.categoria === "DAS - Simples Nacional" && l.descricao === `DAS ref. ${mesRef}`));
+      salvarStorage("mei_lancamentos", a);
+      return a;
+    });
+  }, []);
   const removerDAS = useCallback((id) => {
     setRegistrosDAS(prev => { const a = prev.filter(d => d.id !== id); salvarStorage("mei_das", a); return a; });
   }, []);
@@ -72,11 +86,19 @@ function useFinancas() {
   const percentualFaturamento = Math.min((faturamentoAnual / config.limiteAnual) * 100, 100);
 
   // Despesas recorrentes: soma mensal
+  // Agrupa por categoria+descrição para identificar itens únicos,
+  // e usa o valor mais recente de cada um (caso o preço tenha mudado)
   const recorrentes = lancamentos.filter(l => l.recorrente && l.tipo === "despesa");
   const custoFixoMensal = (() => {
-    const cats = {};
-    recorrentes.forEach(l => { if (!cats[l.categoria] || l.valor > cats[l.categoria]) cats[l.categoria] = l.valor; });
-    return Object.values(cats).reduce((s, v) => s + v, 0);
+    const itens = {};
+    // Ordena por data para que o mais recente sobrescreva
+    [...recorrentes]
+      .sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime())
+      .forEach(l => {
+        const chave = `${l.categoria}::${l.descricao || "sem-desc"}`;
+        itens[chave] = l.valor; // mais recente sobrescreve
+      });
+    return Object.values(itens).reduce((s, v) => s + v, 0);
   })();
 
   // Backup
@@ -95,7 +117,7 @@ function useFinancas() {
 
   return {
     lancamentos, registrosDAS, config, adicionarLancamento, editarLancamento, removerLancamento,
-    adicionarDAS, atualizarStatusDAS, removerDAS, salvarConfig, limparTudo,
+    adicionarDAS, atualizarStatusDAS, removerDAS, existeLancamentoDAS, removerLancamentoDAS, salvarConfig, limparTudo,
     lancamentosDoMesAno, receitasDoMesAno, despesasDoMesAno,
     faturamentoAnual, percentualFaturamento, custoFixoMensal,
     exportarDados, importarDados, anoAtual,
@@ -480,7 +502,7 @@ function NovoLancamento({ fin, arq, onVoltar, modoInicial, lancamentoEditando })
       let arquivoId = null;
       if (dasArquivoFile) arquivoId = arq.salvarArquivo(dasArquivoFile);
       fin.adicionarDAS({ mesReferencia: dasMes, valor: vDAS, status: dasStatus, dataVencimento: `${dasMes}-20`, arquivoId });
-      if (dasStatus === "pago" && vDAS > 0) fin.adicionarLancamento({ tipo: "despesa", valor: vDAS, categoria: "DAS - Simples Nacional", data: hojeISO(), descricao: `DAS ref. ${dasMes}`, arquivoId, recorrente: false });
+      if (dasStatus === "pago" && vDAS > 0 && !fin.existeLancamentoDAS(dasMes)) fin.adicionarLancamento({ tipo: "despesa", valor: vDAS, categoria: "DAS - Simples Nacional", data: `${dasMes}-20`, descricao: `DAS ref. ${dasMes}`, arquivoId, recorrente: false });
     } else {
       const v = parseFloat(valor.replace(/\./g, "").replace(",", ".")) || 0;
       let arquivoId = editando?.arquivoId || null;
@@ -943,8 +965,15 @@ function Configuracoes({ fin }) {
               <div key={d.id} className={`flex justify-between items-center px-4 py-3 ${i < dasHistorico.length - 1 ? "border-b border-gray-50" : ""}`}>
                 <div><p className="text-sm text-gray-800 capitalize">{nomeMes(d.mesReferencia)}</p><p className="text-xs text-gray-400">{fmt(d.valor)}</p></div>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => { const ns = d.status === "pago" ? "pendente" : "pago"; fin.atualizarStatusDAS(d.id, ns);
-                    if (ns === "pago") fin.adicionarLancamento({ tipo: "despesa", valor: d.valor, categoria: "DAS - Simples Nacional", data: hojeISO(), descricao: `DAS ref. ${d.mesReferencia}`, arquivoId: null, recorrente: false }); }}
+                  <button onClick={() => {
+                      const ns = d.status === "pago" ? "pendente" : "pago";
+                      fin.atualizarStatusDAS(d.id, ns);
+                      if (ns === "pago" && !fin.existeLancamentoDAS(d.mesReferencia)) {
+                        fin.adicionarLancamento({ tipo: "despesa", valor: d.valor, categoria: "DAS - Simples Nacional", data: `${d.mesReferencia}-20`, descricao: `DAS ref. ${d.mesReferencia}`, arquivoId: null, recorrente: false });
+                      } else if (ns === "pendente") {
+                        fin.removerLancamentoDAS(d.mesReferencia);
+                      }
+                    }}
                     className={`px-3 py-1 rounded-full text-xs font-medium ${d.status === "pago" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
                     {d.status === "pago" ? "✅ Pago" : "⏳ Pendente"}</button>
                   <button onClick={() => fin.removerDAS(d.id)} className="text-gray-300 active:text-red-500 p-1"><Ic.Trash s={14}/></button>
