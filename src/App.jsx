@@ -455,10 +455,17 @@ function NovoLancamento({ fin, arq, onVoltar, modoInicial, lancamentoEditando })
   const [dasArquivoFile, setDasArquivoFile] = useState(null);
   const [salvo, setSalvo] = useState(false);
   const [erros, setErros] = useState({});
+  const [primeiroRender, setPrimeiroRender] = useState(true);
   const categorias = tipo === "receita"
     ? (fin.config.categoriasReceita || CATEGORIAS_RECEITA_PADRAO)
     : (fin.config.categoriasDespesa || CATEGORIAS_DESPESA_PADRAO);
-  useEffect(() => { setCategoria(categorias[0]); }, [tipo]);
+
+  // Bug fix #1 e #2: Só reseta a categoria quando o tipo muda PELO USUÁRIO,
+  // não no primeiro render (que sobrescreveria a categoria do item sendo editado)
+  useEffect(() => {
+    if (primeiroRender) { setPrimeiroRender(false); return; }
+    setCategoria(categorias[0]);
+  }, [tipo]);
 
   function salvar() {
     const e = {};
