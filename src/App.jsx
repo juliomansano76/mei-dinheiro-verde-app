@@ -1,4 +1,55 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+// ============================================================
+// SUPABASE CLIENT
+// ============================================================
+const supabase = createClient(
+  "https://teeewsteahiysykyckxy.supabase.co",
+  "sb_publishable_D9u0niTRyzY4JrBMm1mHYQ_nKGlJV2N"
+);
+
+// ============================================================
+// HOOK: Autenticação
+// ============================================================
+function useAuth() {
+  const [usuario, setUsuario] = useState(null);
+  const [carregando, setCarregando] = useState(true);
+
+  useEffect(() => {
+    // Verifica sessão atual
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUsuario(session?.user || null);
+      setCarregando(false);
+    });
+    // Escuta mudanças de login/logout
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUsuario(session?.user || null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  async function login(email, senha) {
+    const { error } = await supabase.auth.signInWithPassword({ email, password: senha });
+    return error;
+  }
+
+  async function cadastrar(email, senha) {
+    const { error } = await supabase.auth.signUp({ email, password: senha });
+    return error;
+  }
+
+  async function logout() {
+    await supabase.auth.signOut();
+  }
+
+  async function deletarConta() {
+    await supabase.rpc("deletar_minha_conta");
+    await supabase.auth.signOut();
+  }
+
+  return { usuario, carregando, login, cadastrar, logout, deletarConta };
+}
 
 // ============================================================
 // CONSTANTES
@@ -6,6 +57,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 const CATEGORIAS_RECEITA_PADRAO = ["Vendas", "Serviços Prestados", "Comissões", "Outros"];
 const CATEGORIAS_DESPESA_PADRAO = ["Material", "Transporte", "Alimentação", "Internet / Telefone", "Aluguel", "Marketing", "Contador", "DAS - Simples Nacional", "Outros"];
 const MESES_NOME = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+
 
 // ============================================================
 // HOOKS
@@ -15,65 +67,125 @@ function lerStorage(chave, padrao) {
 }
 function salvarStorage(chave, dados) { localStorage.setItem(chave, JSON.stringify(dados)); }
 
-function useFinancas() {
+function useFinancas(userId) {
   const [lancamentos, setLancamentos] = useState([]);
   const [registrosDAS, setRegistrosDAS] = useState([]);
-  const [config, setConfig] = useState(() => lerStorage("mei_config", {
+  const [config, setConfig] = useState({
     nome: "", cnpj: "", limiteAnual: 81000, diaDAS: 20,
     categoriasReceita: CATEGORIAS_RECEITA_PADRAO,
     categoriasDespesa: CATEGORIAS_DESPESA_PADRAO,
-  }));
+  });
+  const [carregando, setCarregando] = useState(true);
 
   useEffect(() => {
-    setLancamentos(lerStorage("mei_lancamentos", []));
-    setRegistrosDAS(lerStorage("mei_das", []));
+    if (!userId) return;
+    setCarregando(true);
+    Promise.all([
+      supabase.from("lancamentos").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
+      supabase.from("registros_das").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
+      supabase.from("config_mei").select("*").eq("user_id", userId).single(),
+    ]).then(([lancRes, dasRes, cfgRes]) => {
+      if (lancRes.data) {
+        setLancamentos(lancRes.data.map(l => ({
+          id: l.id, tipo: l.tipo, valor: Number(l.valor), categoria: l.categoria,
+          data: l.data, descricao: l.descricao || "", arquivoId: l.arquivo_url, recorrente: l.recorrente || false,
+        })));
+      }
+      if (dasRes.data) {
+        setRegistrosDAS(dasRes.data.map(d => ({
+          id: d.id, mesReferencia: d.mes_referencia, valor: Number(d.valor),
+          status: d.status, dataVencimento: d.data_vencimento, arquivoId: d.arquivo_url,
+        })));
+      }
+      if (cfgRes.data) {
+        setConfig({
+          nome: cfgRes.data.nome || "", cnpj: cfgRes.data.cnpj || "",
+          limiteAnual: Number(cfgRes.data.limite_anual) || 81000, diaDAS: cfgRes.data.dia_das || 20,
+          categoriasReceita: cfgRes.data.categorias_receita || CATEGORIAS_RECEITA_PADRAO,
+          categoriasDespesa: cfgRes.data.categorias_despesa || CATEGORIAS_DESPESA_PADRAO,
+        });
+      }
+      setCarregando(false);
+    });
+  }, [userId]);
+
+  const adicionarLancamento = useCallback(async (dados) => {
+    const novo = { ...dados, id: crypto.randomUUID() };
+    setLancamentos(prev => [novo, ...prev]);
+    await supabase.from("lancamentos").insert({
+      id: novo.id, user_id: userId, tipo: novo.tipo, valor: novo.valor, categoria: novo.categoria,
+      data: novo.data, descricao: novo.descricao, arquivo_url: novo.arquivoId, recorrente: novo.recorrente,
+    });
+    return novo;
+  }, [userId]);
+
+  const editarLancamento = useCallback(async (id, dados) => {
+    setLancamentos(prev => prev.map(l => l.id === id ? { ...l, ...dados } : l));
+    const u = {};
+    if (dados.tipo !== undefined) u.tipo = dados.tipo;
+    if (dados.valor !== undefined) u.valor = dados.valor;
+    if (dados.categoria !== undefined) u.categoria = dados.categoria;
+    if (dados.data !== undefined) u.data = dados.data;
+    if (dados.descricao !== undefined) u.descricao = dados.descricao;
+    if (dados.arquivoId !== undefined) u.arquivo_url = dados.arquivoId;
+    if (dados.recorrente !== undefined) u.recorrente = dados.recorrente;
+    await supabase.from("lancamentos").update(u).eq("id", id);
   }, []);
 
-  const adicionarLancamento = useCallback((dados) => {
-    const novo = { ...dados, id: Date.now().toString() };
-    setLancamentos(prev => { const a = [novo, ...prev]; salvarStorage("mei_lancamentos", a); return a; });
-    return novo;
-  }, []);
-  const editarLancamento = useCallback((id, dados) => {
-    setLancamentos(prev => { const a = prev.map(l => l.id === id ? { ...l, ...dados } : l); salvarStorage("mei_lancamentos", a); return a; });
-  }, []);
-  const removerLancamento = useCallback((id) => {
-    setLancamentos(prev => { const a = prev.filter(l => l.id !== id); salvarStorage("mei_lancamentos", a); return a; });
-  }, []);
-  const adicionarDAS = useCallback((dados) => {
-    const novo = { ...dados, id: Date.now().toString() };
-    setRegistrosDAS(prev => { const a = [novo, ...prev]; salvarStorage("mei_das", a); return a; });
-    return novo;
-  }, []);
-  const atualizarStatusDAS = useCallback((id, status) => {
-    setRegistrosDAS(prev => { const a = prev.map(d => d.id === id ? { ...d, status } : d); salvarStorage("mei_das", a); return a; });
+  const removerLancamento = useCallback(async (id) => {
+    setLancamentos(prev => prev.filter(l => l.id !== id));
+    await supabase.from("lancamentos").delete().eq("id", id);
   }, []);
 
-  // Bug fix: verifica se já existe lançamento de despesa DAS para um mês
+  const adicionarDAS = useCallback(async (dados) => {
+    const novo = { ...dados, id: crypto.randomUUID() };
+    setRegistrosDAS(prev => [novo, ...prev]);
+    await supabase.from("registros_das").insert({
+      id: novo.id, user_id: userId, mes_referencia: novo.mesReferencia, valor: novo.valor,
+      status: novo.status, data_vencimento: novo.dataVencimento, arquivo_url: novo.arquivoId,
+    });
+    return novo;
+  }, [userId]);
+
+  const atualizarStatusDAS = useCallback(async (id, status) => {
+    setRegistrosDAS(prev => prev.map(d => d.id === id ? { ...d, status } : d));
+    await supabase.from("registros_das").update({ status }).eq("id", id);
+  }, []);
+
   const existeLancamentoDAS = useCallback((mesRef) => {
     return lancamentos.some(l => l.categoria === "DAS - Simples Nacional" && l.descricao === `DAS ref. ${mesRef}`);
   }, [lancamentos]);
 
-  // Remove lançamento DAS de um mês específico (quando muda de pago para pendente)
-  const removerLancamentoDAS = useCallback((mesRef) => {
-    setLancamentos(prev => {
-      const a = prev.filter(l => !(l.categoria === "DAS - Simples Nacional" && l.descricao === `DAS ref. ${mesRef}`));
-      salvarStorage("mei_lancamentos", a);
-      return a;
-    });
-  }, []);
-  const removerDAS = useCallback((id) => {
-    setRegistrosDAS(prev => { const a = prev.filter(d => d.id !== id); salvarStorage("mei_das", a); return a; });
-  }, []);
-  const salvarConfig = useCallback((novaConfig) => {
-    setConfig(prev => { const a = { ...prev, ...novaConfig }; salvarStorage("mei_config", a); return a; });
-  }, []);
-  const limparTudo = useCallback(() => {
-    setLancamentos([]); setRegistrosDAS([]);
-    salvarStorage("mei_lancamentos", []); salvarStorage("mei_das", []);
+  const removerLancamentoDAS = useCallback(async (mesRef) => {
+    const ids = lancamentos.filter(l => l.categoria === "DAS - Simples Nacional" && l.descricao === `DAS ref. ${mesRef}`).map(l => l.id);
+    setLancamentos(prev => prev.filter(l => !(l.categoria === "DAS - Simples Nacional" && l.descricao === `DAS ref. ${mesRef}`)));
+    for (const id of ids) { await supabase.from("lancamentos").delete().eq("id", id); }
+  }, [lancamentos]);
+
+  const removerDAS = useCallback(async (id) => {
+    setRegistrosDAS(prev => prev.filter(d => d.id !== id));
+    await supabase.from("registros_das").delete().eq("id", id);
   }, []);
 
-  // Funções para mês/ano específico
+  const salvarConfig = useCallback(async (novaConfig) => {
+    setConfig(prev => {
+      const a = { ...prev, ...novaConfig };
+      supabase.from("config_mei").upsert({
+        user_id: userId, nome: a.nome, cnpj: a.cnpj,
+        limite_anual: a.limiteAnual, dia_das: a.diaDAS,
+        categorias_receita: a.categoriasReceita, categorias_despesa: a.categoriasDespesa,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "user_id" });
+      return a;
+    });
+  }, [userId]);
+
+  const limparTudo = useCallback(async () => {
+    setLancamentos([]); setRegistrosDAS([]);
+    await supabase.from("lancamentos").delete().eq("user_id", userId);
+    await supabase.from("registros_das").delete().eq("user_id", userId);
+  }, [userId]);
+
   function lancamentosDoMesAno(mes, ano) {
     return lancamentos.filter(l => { const d = new Date(l.data); return d.getMonth() === mes && d.getFullYear() === ano; });
   }
@@ -85,38 +197,45 @@ function useFinancas() {
   const faturamentoAnual = lancamentos.filter(l => l.tipo === "receita" && new Date(l.data).getFullYear() === anoAtual).reduce((s, l) => s + l.valor, 0);
   const percentualFaturamento = Math.min((faturamentoAnual / config.limiteAnual) * 100, 100);
 
-  // Despesas recorrentes: soma mensal
-  // Agrupa por categoria+descrição para identificar itens únicos,
-  // e usa o valor mais recente de cada um (caso o preço tenha mudado)
   const recorrentes = lancamentos.filter(l => l.recorrente && l.tipo === "despesa");
   const custoFixoMensal = (() => {
     const itens = {};
-    // Ordena por data para que o mais recente sobrescreva
-    [...recorrentes]
-      .sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime())
-      .forEach(l => {
-        const chave = `${l.categoria}::${l.descricao || "sem-desc"}`;
-        itens[chave] = l.valor; // mais recente sobrescreve
-      });
+    [...recorrentes].sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime())
+      .forEach(l => { itens[`${l.categoria}::${l.descricao || "sem-desc"}`] = l.valor; });
     return Object.values(itens).reduce((s, v) => s + v, 0);
   })();
 
-  // Backup
   function exportarDados() {
     return JSON.stringify({ lancamentos, registrosDAS, config, versao: 1, exportadoEm: new Date().toISOString() }, null, 2);
   }
-  function importarDados(json) {
+  async function importarDados(json) {
     try {
       const dados = JSON.parse(json);
-      if (dados.lancamentos) { setLancamentos(dados.lancamentos); salvarStorage("mei_lancamentos", dados.lancamentos); }
-      if (dados.registrosDAS) { setRegistrosDAS(dados.registrosDAS); salvarStorage("mei_das", dados.registrosDAS); }
-      if (dados.config) { setConfig(dados.config); salvarStorage("mei_config", dados.config); }
+      if (dados.lancamentos) {
+        setLancamentos(dados.lancamentos);
+        for (const l of dados.lancamentos) {
+          await supabase.from("lancamentos").upsert({
+            id: l.id || crypto.randomUUID(), user_id: userId, tipo: l.tipo, valor: l.valor,
+            categoria: l.categoria, data: l.data, descricao: l.descricao, arquivo_url: l.arquivoId, recorrente: l.recorrente,
+          });
+        }
+      }
+      if (dados.registrosDAS) {
+        setRegistrosDAS(dados.registrosDAS);
+        for (const d of dados.registrosDAS) {
+          await supabase.from("registros_das").upsert({
+            id: d.id || crypto.randomUUID(), user_id: userId, mes_referencia: d.mesReferencia,
+            valor: d.valor, status: d.status, data_vencimento: d.dataVencimento, arquivo_url: d.arquivoId,
+          });
+        }
+      }
+      if (dados.config) { salvarConfig(dados.config); }
       return true;
     } catch { return false; }
   }
 
   return {
-    lancamentos, registrosDAS, config, adicionarLancamento, editarLancamento, removerLancamento,
+    lancamentos, registrosDAS, config, carregando, adicionarLancamento, editarLancamento, removerLancamento,
     adicionarDAS, atualizarStatusDAS, removerDAS, existeLancamentoDAS, removerLancamentoDAS, salvarConfig, limparTudo,
     lancamentosDoMesAno, receitasDoMesAno, despesasDoMesAno,
     faturamentoAnual, percentualFaturamento, custoFixoMensal,
@@ -124,18 +243,44 @@ function useFinancas() {
   };
 }
 
-function useArquivos() {
+function useArquivos(userId) {
   const [arquivos, setArquivos] = useState({});
-  const salvarArquivo = useCallback((file) => {
-    const id = `arq_${Date.now()}`;
-    const url = URL.createObjectURL(file);
-    setArquivos(prev => ({ ...prev, [id]: { id, nome: file.name, tipo: file.type, url } }));
-    return id;
-  }, []);
-  const obterArquivo = useCallback((id) => arquivos[id] || null, [arquivos]);
+
+  const salvarArquivo = useCallback(async (file) => {
+    const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    // Salva no Supabase Storage
+    const caminho = `${userId}/${id}_${file.name}`;
+    const { error } = await supabase.storage.from("comprovantes").upload(caminho, file);
+    if (error) {
+      console.error("Erro upload:", error);
+      // Fallback: salva localmente
+      const url = URL.createObjectURL(file);
+      setArquivos(prev => ({ ...prev, [caminho]: { id: caminho, nome: file.name, tipo: file.type, url } }));
+      return caminho;
+    }
+    // Gera URL temporária para visualização
+    const { data } = supabase.storage.from("comprovantes").getPublicUrl(caminho);
+    setArquivos(prev => ({ ...prev, [caminho]: { id: caminho, nome: file.name, tipo: file.type, url: data.publicUrl } }));
+    return caminho;
+  }, [userId]);
+
+  const obterArquivo = useCallback(async (id) => {
+    if (arquivos[id]) return arquivos[id];
+    if (!id || !userId) return null;
+    // Tenta buscar URL assinada do Supabase
+    try {
+      const { data } = await supabase.storage.from("comprovantes").createSignedUrl(id, 3600);
+      if (data?.signedUrl) {
+        const arq = { id, nome: id.split("/").pop(), tipo: "image/jpeg", url: data.signedUrl };
+        setArquivos(prev => ({ ...prev, [id]: arq }));
+        return arq;
+      }
+    } catch {}
+    return null;
+  }, [userId, arquivos]);
+
   return { salvarArquivo, obterArquivo };
 }
-
 // Hook para navegação entre meses
 function useMesNavegacao() {
   const hoje = new Date();
@@ -1460,7 +1605,7 @@ function EditorCategorias({ titulo, categorias, onSalvar, cor }) {
 // ============================================================
 // CONFIGURAÇÕES
 // ============================================================
-function Configuracoes({ fin }) {
+function Configuracoes({ fin, auth }) {
   const [editando, setEditando] = useState(null);
   const [valorEdit, setValorEdit] = useState("");
   const [confirmarLimpar, setConfirmarLimpar] = useState(false);
@@ -1603,6 +1748,21 @@ function Configuracoes({ fin }) {
           </div>
         )}
       </div>
+
+      {/* Conta */}
+      <div className="mt-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-3">Conta</h2>
+        <div className="space-y-2">
+          <button onClick={() => { auth.logout(); salvarStorage("mei_onboarding_done", false); }}
+            className="w-full bg-white border border-gray-200 text-gray-700 py-3 rounded-xl text-sm font-medium active:bg-gray-50 transition-colors">
+            Sair da conta
+          </button>
+          <button onClick={async () => { if (confirm("Tem certeza? Isso apaga TODOS os seus dados permanentemente.")) { await auth.deletarConta(); salvarStorage("mei_onboarding_done", false); } }}
+            className="w-full bg-white border border-red-200 text-red-500 py-3 rounded-xl text-sm font-medium active:bg-red-50 transition-colors">
+            Excluir minha conta e dados
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1702,16 +1862,126 @@ function Onboarding({ onConcluir }) {
 }
 
 // ============================================================
+// TELA DE LOGIN
+// ============================================================
+function TelaLogin({ auth }) {
+  const [modo, setModo] = useState("login"); // login | cadastro
+  const [email, setEmail] = useState("");
+  const [senha, setSenha] = useState("");
+  const [erro, setErro] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [sucesso, setSucesso] = useState(false);
+
+  async function handleSubmit() {
+    setErro(""); setEnviando(true);
+    const error = modo === "login" ? await auth.login(email, senha) : await auth.cadastrar(email, senha);
+    setEnviando(false);
+    if (error) {
+      const msgs = {
+        "Invalid login credentials": "E-mail ou senha incorretos",
+        "User already registered": "Este e-mail já está cadastrado",
+        "Password should be at least 6 characters": "A senha precisa ter pelo menos 6 caracteres",
+        "Unable to validate email address: invalid format": "Formato de e-mail inválido",
+      };
+      setErro(msgs[error.message] || error.message);
+    } else if (modo === "cadastro") {
+      setSucesso(true);
+    }
+  }
+
+  if (sucesso) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 px-8 text-center">
+        <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mb-4"><Ic.Check s={32} c="#059669"/></div>
+        <h2 className="text-xl font-bold text-gray-900">Conta criada!</h2>
+        <p className="text-sm text-gray-500 mt-3">Verifique seu e-mail para confirmar o cadastro. Depois volte aqui e faça login.</p>
+        <button onClick={() => { setModo("login"); setSucesso(false); setErro(""); }}
+          className="mt-6 w-full bg-emerald-600 text-white py-4 rounded-xl font-semibold active:bg-emerald-700">Fazer login</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col justify-center min-h-screen bg-gray-50 px-8">
+      <div className="text-center mb-8">
+        <div className="w-16 h-16 bg-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <span className="text-3xl font-bold text-white">$</span>
+        </div>
+        <h1 className="text-2xl font-bold text-gray-900">MEI Dinheiro Verde</h1>
+        <p className="text-sm text-gray-500 mt-1">{modo === "login" ? "Entre na sua conta" : "Crie sua conta gratuita"}</p>
+      </div>
+
+      <div className="space-y-4">
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">E-mail</label>
+          <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+            className="w-full border border-gray-200 rounded-xl px-4 py-3.5 text-base bg-white outline-none focus:border-emerald-400"
+            placeholder="seu@email.com" autoComplete="email"/>
+        </div>
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">Senha</label>
+          <input type="password" value={senha} onChange={e => setSenha(e.target.value)}
+            className="w-full border border-gray-200 rounded-xl px-4 py-3.5 text-base bg-white outline-none focus:border-emerald-400"
+            placeholder={modo === "cadastro" ? "Mínimo 6 caracteres" : "Sua senha"}
+            autoComplete={modo === "login" ? "current-password" : "new-password"}
+            onKeyDown={e => { if (e.key === "Enter") handleSubmit(); }}/>
+        </div>
+
+        {erro && <p className="text-sm text-red-500 text-center bg-red-50 rounded-xl p-3">{erro}</p>}
+
+        <button onClick={handleSubmit} disabled={enviando || !email || !senha}
+          className={`w-full py-4 rounded-xl font-semibold text-base transition-colors ${enviando || !email || !senha ? "bg-gray-200 text-gray-400" : "bg-emerald-600 text-white active:bg-emerald-700"}`}>
+          {enviando ? "Aguarde..." : modo === "login" ? "Entrar" : "Criar conta"}
+        </button>
+      </div>
+
+      <button onClick={() => { setModo(modo === "login" ? "cadastro" : "login"); setErro(""); }}
+        className="mt-6 text-sm text-center text-emerald-600 font-medium">
+        {modo === "login" ? "Não tem conta? Cadastre-se" : "Já tem conta? Faça login"}
+      </button>
+    </div>
+  );
+}
+
+// ============================================================
 // APP
 // ============================================================
 export default function App() {
+  const auth = useAuth();
   const [onboardingCompleto, setOnboardingCompleto] = useState(() => lerStorage("mei_onboarding_done", false));
   const [pagina, setPagina] = useState("dashboard");
   const [lancParaEditar, setLancParaEditar] = useState(null);
   const [relFiltro, setRelFiltro] = useState(null);
-  const fin = useFinancas();
-  const arq = useArquivos();
+  const fin = useFinancas(auth.usuario?.id);
+  const arq = useArquivos(auth.usuario?.id);
   const nav = useMesNavegacao();
+
+  // Tela de carregamento inicial
+  if (auth.carregando) {
+    return (
+      <div className="max-w-md mx-auto min-h-screen bg-gray-50 flex flex-col items-center justify-center">
+        <div className="w-12 h-12 bg-emerald-600 rounded-2xl flex items-center justify-center mb-4 animate-pulse">
+          <span className="text-2xl font-bold text-white">$</span>
+        </div>
+        <p className="text-sm text-gray-500">Carregando...</p>
+      </div>
+    );
+  }
+
+  // Se não está logado, mostra tela de login
+  if (!auth.usuario) {
+    return <div className="max-w-md mx-auto min-h-screen"><TelaLogin auth={auth}/></div>;
+  }
+
+  // Se está logado mas ainda carregando dados
+  if (fin.carregando) {
+    return (
+      <div className="max-w-md mx-auto min-h-screen bg-gray-50 flex flex-col items-center justify-center">
+        <div className="w-10 h-10 border-3 border-emerald-200 border-t-emerald-600 rounded-full animate-spin mb-4"/>
+        <p className="text-sm text-gray-500">Carregando seus dados...</p>
+      </div>
+    );
+  }
 
   function concluirOnboarding(nome, cnpj) {
     if (nome.trim()) fin.salvarConfig({ nome: nome.trim() });
@@ -1740,7 +2010,7 @@ export default function App() {
       case "editar": return <NovoLancamento fin={fin} arq={arq} onVoltar={() => navegar("lancamentos")} lancamentoEditando={lancParaEditar}/>;
       case "novo-das": return <NovoLancamento fin={fin} arq={arq} onVoltar={() => navegar("dashboard")} modoInicial="das"/>;
       case "relatorios": return <Relatorios fin={fin} nav={nav} filtroInicial={relFiltro} arq={arq}/>;
-      case "config": return <Configuracoes fin={fin}/>;
+      case "config": return <Configuracoes fin={fin} auth={auth}/>;
       default: return <Dashboard fin={fin} nav={nav} onNav={navegar}/>;
     }
   }
