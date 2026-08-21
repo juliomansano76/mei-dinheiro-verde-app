@@ -1304,7 +1304,7 @@ function Lancamentos({ fin, arq, nav, onNav }) {
 // ============================================================
 // NOVO LANÇAMENTO
 // ============================================================
-function NovoLancamento({ fin, arq, onVoltar, modoInicial, lancamentoEditando }) {
+function NovoLancamento({ fin, arq, onVoltar, modoInicial, lancamentoEditando, premium }) {
   const editando = lancamentoEditando || null;
   const [modo, setModo] = useState(modoInicial || "lancamento");
   const [tipo, setTipo] = useState(editando?.tipo || "receita");
@@ -1394,7 +1394,13 @@ function NovoLancamento({ fin, arq, onVoltar, modoInicial, lancamentoEditando })
               <button key={s} onClick={() => setDasStatus(s)}
                 className={`flex-1 py-3 rounded-xl text-sm font-medium transition-all ${dasStatus === s ? (s === "pago" ? "bg-emerald-100 text-emerald-700 border-2 border-emerald-500" : "bg-amber-100 text-amber-700 border-2 border-amber-500") : "bg-white border border-gray-200 text-gray-500"}`}>
                 {s === "pago" ? "✅ Pago" : "⏳ Pendente"}</button>))}</div></div>
-          <BotaoAnexo arquivo={dasArquivo} onAnexar={(f) => { setDasArquivo({ nome: f.name, tipo: f.type }); setDasArquivoFile(f); }} onRemover={() => { setDasArquivo(null); setDasArquivoFile(null); }}/>
+          {premium?.isPremium ? (
+            <BotaoAnexo arquivo={dasArquivo} onAnexar={(f) => { setDasArquivo({ nome: f.name, tipo: f.type }); setDasArquivoFile(f); }} onRemover={() => { setDasArquivo(null); setDasArquivoFile(null); }}/>
+          ) : (
+            <button onClick={() => premium?.verificarPremium()} className="w-full flex items-center justify-center gap-2 bg-gray-50 border border-dashed border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-400">
+              ⭐ Anexar comprovante (Premium)
+            </button>
+          )}
           <button onClick={salvar} className="w-full bg-emerald-600 text-white py-4 rounded-xl font-semibold text-base active:bg-emerald-700 active:scale-[0.98] transition-all mt-2">Registrar DAS</button>
         </div>
       ) : (
@@ -1429,7 +1435,13 @@ function NovoLancamento({ fin, arq, onVoltar, modoInicial, lancamentoEditando })
             </div>
           </button>
 
-          <BotaoAnexo arquivo={arquivo} onAnexar={(f) => { setArquivo({ nome: f.name, tipo: f.type }); setArquivoFile(f); }} onRemover={() => { setArquivo(null); setArquivoFile(null); }}/>
+          {premium?.isPremium ? (
+            <BotaoAnexo arquivo={arquivo} onAnexar={(f) => { setArquivo({ nome: f.name, tipo: f.type }); setArquivoFile(f); }} onRemover={() => { setArquivo(null); setArquivoFile(null); }}/>
+          ) : (
+            <button onClick={() => premium?.verificarPremium()} className="w-full flex items-center justify-center gap-2 bg-gray-50 border border-dashed border-gray-200 rounded-xl px-3 py-3 text-sm text-gray-400">
+              ⭐ Anexar comprovante (Premium)
+            </button>
+          )}
           <button onClick={salvar} className="w-full bg-emerald-600 text-white py-4 rounded-xl font-semibold text-base active:bg-emerald-700 active:scale-[0.98] transition-all mt-2">{editando ? "Salvar alterações" : "Salvar lançamento"}</button>
         </div>
       )}
@@ -1900,8 +1912,9 @@ function Relatorios({ fin, nav, filtroInicial, arq, premium }) {
       {dadosRec.length > 0 && <div ref={recRef} className={`mt-4 bg-white rounded-2xl border p-5 shadow-sm ${filtroInicial === "receita" ? "border-emerald-300 ring-2 ring-emerald-100" : "border-gray-100"}`}><p className="text-sm font-medium text-gray-700 mb-4">Receitas por categoria</p><GraficoPizza dados={dadosRec}/></div>}
 
       {/* Evolução mensal */}
-      <div className="mt-4 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
-        <p className="text-sm font-medium text-gray-700 mb-3">Evolução mensal</p>
+      {premium.isPremium ? (
+        <div className="mt-4 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+          <p className="text-sm font-medium text-gray-700 mb-3">Evolução mensal</p>
         {!evolucaoCat ? (
           <div>
             <p className="text-xs text-gray-500 mb-3">Escolha uma categoria para ver a evolução dos últimos 6 meses:</p>
@@ -1937,9 +1950,15 @@ function Relatorios({ fin, nav, filtroInicial, arq, premium }) {
           </div>
         )}
       </div>
+      ) : (
+        <button onClick={() => premium.verificarPremium()} className="mt-4 w-full bg-gray-50 border border-gray-200 rounded-xl py-4 text-center active:bg-gray-100">
+          <p className="text-sm text-gray-600">⭐ Evolução mensal e projeção</p>
+          <p className="text-xs text-gray-400 mt-0.5">Disponível no plano Premium</p>
+        </button>
+      )}
 
       {/* Projeção */}
-      {nav.isAtual && (
+      {premium.isPremium && nav.isAtual && (
         <div className="mt-4 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
           <p className="text-sm font-medium text-gray-700 mb-3">Projeção até dezembro</p>
           <div className="space-y-2 text-sm">
@@ -2072,7 +2091,7 @@ function EditorCategorias({ titulo, categorias, onSalvar, cor }) {
 // ============================================================
 // CONFIGURAÇÕES
 // ============================================================
-function Configuracoes({ fin, auth }) {
+function Configuracoes({ fin, auth, premium }) {
   const [editando, setEditando] = useState(null);
   const [valorEdit, setValorEdit] = useState("");
   const [confirmarLimpar, setConfirmarLimpar] = useState(false);
@@ -2120,6 +2139,27 @@ function Configuracoes({ fin, auth }) {
     <div className="px-5 pt-6 pb-24">
       <h1 className="text-2xl font-bold text-gray-900">Ajustes</h1>
 
+      {/* Indicador de plano */}
+      {premium.isPremium ? (
+        <div className="mt-4 bg-emerald-600 rounded-2xl p-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">⭐</span>
+            <div><p className="text-sm font-semibold text-white">Plano Premium</p>
+              <p className="text-xs text-emerald-200">Todas as funcionalidades ativas</p></div>
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => premium.verificarPremium()}
+          className="mt-4 w-full bg-gray-50 border border-emerald-200 rounded-2xl p-4 flex items-center justify-between active:bg-emerald-50 transition-colors">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">💚</span>
+            <div className="text-left"><p className="text-sm font-semibold text-gray-800">Plano Free</p>
+              <p className="text-xs text-gray-500">Toque para ver os benefícios Premium</p></div>
+          </div>
+          <Ic.Fwd s={16} c="#059669"/>
+        </button>
+      )}
+
       <div className="mt-6 space-y-3">
         {campos.map(c => (
           <div key={c.id}>{editando === c.id ? (
@@ -2148,18 +2188,29 @@ function Configuracoes({ fin, auth }) {
       </div>
 
       {/* Editor de Categorias */}
-      <EditorCategorias
-        titulo="Categorias de Receita"
-        categorias={fin.config.categoriasReceita || CATEGORIAS_RECEITA_PADRAO}
-        onSalvar={(cats) => fin.salvarConfig({ categoriasReceita: cats })}
-        cor="emerald"
-      />
-      <EditorCategorias
-        titulo="Categorias de Despesa"
-        categorias={fin.config.categoriasDespesa || CATEGORIAS_DESPESA_PADRAO}
-        onSalvar={(cats) => fin.salvarConfig({ categoriasDespesa: cats })}
-        cor="red"
-      />
+      {premium.isPremium ? (
+        <>
+          <EditorCategorias
+            titulo="Categorias de Receita"
+            categorias={fin.config.categoriasReceita || CATEGORIAS_RECEITA_PADRAO}
+            onSalvar={(cats) => fin.salvarConfig({ categoriasReceita: cats })}
+            cor="emerald"
+          />
+          <EditorCategorias
+            titulo="Categorias de Despesa"
+            categorias={fin.config.categoriasDespesa || CATEGORIAS_DESPESA_PADRAO}
+            onSalvar={(cats) => fin.salvarConfig({ categoriasDespesa: cats })}
+            cor="red"
+          />
+        </>
+      ) : (
+        <div className="mt-6">
+          <button onClick={() => premium.verificarPremium()} className="w-full bg-gray-50 border border-gray-200 rounded-xl py-4 text-center active:bg-gray-100">
+            <p className="text-sm text-gray-600">⭐ Categorias personalizáveis</p>
+            <p className="text-xs text-gray-400 mt-0.5">Disponível no plano Premium</p>
+          </button>
+        </div>
+      )}
 
       {dasHistorico.length > 0 && (
         <div className="mt-6"><h2 className="text-lg font-semibold text-gray-900 mb-3">Histórico DAS</h2>
@@ -2188,17 +2239,24 @@ function Configuracoes({ fin, auth }) {
 
       {/* Backup */}
       <div className="mt-6"><h2 className="text-lg font-semibold text-gray-900 mb-3">Backup</h2>
-        <div className="space-y-2">
-          <button onClick={exportar}
-            className="w-full flex items-center justify-center gap-2 bg-white border border-gray-200 text-gray-700 py-3 rounded-xl text-sm font-medium active:bg-gray-50">
-            <Ic.Down s={16}/> Exportar dados (JSON)</button>
-          <input ref={importRef} type="file" accept=".json" className="hidden" onChange={importar}/>
-          <button onClick={() => importRef.current?.click()}
-            className="w-full flex items-center justify-center gap-2 bg-white border border-gray-200 text-gray-700 py-3 rounded-xl text-sm font-medium active:bg-gray-50">
-            <Ic.Up s={16}/> Importar backup</button>
-          {importStatus === "ok" && <p className="text-xs text-emerald-600 text-center">✅ Dados restaurados com sucesso!</p>}
-          {importStatus === "erro" && <p className="text-xs text-red-500 text-center">❌ Erro ao importar. Verifique o arquivo.</p>}
-        </div>
+        {premium.isPremium ? (
+          <div className="space-y-2">
+            <button onClick={exportar}
+              className="w-full flex items-center justify-center gap-2 bg-white border border-gray-200 text-gray-700 py-3 rounded-xl text-sm font-medium active:bg-gray-50">
+              <Ic.Down s={16}/> Exportar dados (JSON)</button>
+            <input ref={importRef} type="file" accept=".json" className="hidden" onChange={importar}/>
+            <button onClick={() => importRef.current?.click()}
+              className="w-full flex items-center justify-center gap-2 bg-white border border-gray-200 text-gray-700 py-3 rounded-xl text-sm font-medium active:bg-gray-50">
+              <Ic.Up s={16}/> Importar backup</button>
+            {importStatus === "ok" && <p className="text-xs text-emerald-600 text-center">✅ Dados restaurados com sucesso!</p>}
+            {importStatus === "erro" && <p className="text-xs text-red-500 text-center">❌ Erro ao importar. Verifique o arquivo.</p>}
+          </div>
+        ) : (
+          <button onClick={() => premium.verificarPremium()} className="w-full bg-gray-50 border border-gray-200 rounded-xl py-4 text-center active:bg-gray-100">
+            <p className="text-sm text-gray-600">⭐ Backup e exportação de dados</p>
+            <p className="text-xs text-gray-400 mt-0.5">Disponível no plano Premium</p>
+          </button>
+        )}
       </div>
 
       {/* Limpar */}
@@ -2473,12 +2531,12 @@ export default function App() {
     switch (pagina) {
       case "dashboard": return <Dashboard fin={fin} nav={nav} onNav={navegar} premium={premium}/>;
       case "lancamentos": return <Lancamentos fin={fin} arq={arq} nav={nav} onNav={navegar}/>;
-      case "novo": return <NovoLancamento fin={fin} arq={arq} onVoltar={() => navegar("lancamentos")}/>;
-      case "editar": return <NovoLancamento fin={fin} arq={arq} onVoltar={() => navegar("lancamentos")} lancamentoEditando={lancParaEditar}/>;
+      case "novo": return <NovoLancamento fin={fin} arq={arq} onVoltar={() => navegar("lancamentos")} premium={premium}/>;
+      case "editar": return <NovoLancamento fin={fin} arq={arq} onVoltar={() => navegar("lancamentos")} lancamentoEditando={lancParaEditar} premium={premium}/>;
       case "wizard-das": return <WizardPagarDAS fin={fin} onVoltar={() => navegar("dashboard")} onConcluir={() => navegar("dashboard")}/>;
-      case "novo-das": return <NovoLancamento fin={fin} arq={arq} onVoltar={() => navegar("dashboard")} modoInicial="das"/>;
+      case "novo-das": return <NovoLancamento fin={fin} arq={arq} onVoltar={() => navegar("dashboard")} modoInicial="das" premium={premium}/>;
       case "relatorios": return <Relatorios fin={fin} nav={nav} filtroInicial={relFiltro} arq={arq} premium={premium}/>;
-      case "config": return <Configuracoes fin={fin} auth={auth}/>;
+      case "config": return <Configuracoes fin={fin} auth={auth} premium={premium}/>;
       default: return <Dashboard fin={fin} nav={nav} onNav={navegar}/>;
     }
   }
