@@ -40,11 +40,13 @@ function useAuth() {
   }
 
   async function logout() {
+    localStorage.clear();
     await supabase.auth.signOut();
   }
 
   async function deletarConta() {
     await supabase.rpc("deletar_minha_conta");
+    localStorage.clear();
     await supabase.auth.signOut();
   }
 
@@ -73,7 +75,7 @@ function useFinancas(userId) {
   const [config, setConfig] = useState({
     nome: "", cnpj: "", limiteAnual: 81000, diaDAS: 20,
     categoriasReceita: CATEGORIAS_RECEITA_PADRAO,
-    categoriasDespesa: CATEGORIAS_DESPESA_PADRAO, bancoPreferido: "", premium: false,
+    categoriasDespesa: CATEGORIAS_DESPESA_PADRAO, bancoPreferido: "", premium: false, onboardingCompleto: false,
   });
   const [carregando, setCarregando] = useState(true);
 
@@ -102,7 +104,7 @@ function useFinancas(userId) {
           nome: cfgRes.data.nome || "", cnpj: cfgRes.data.cnpj || "",
           limiteAnual: Number(cfgRes.data.limite_anual) || 81000, diaDAS: cfgRes.data.dia_das || 20,
           categoriasReceita: cfgRes.data.categorias_receita || CATEGORIAS_RECEITA_PADRAO,
-          categoriasDespesa: cfgRes.data.categorias_despesa || CATEGORIAS_DESPESA_PADRAO, bancoPreferido: cfgRes.data.banco_preferido || "", premium: cfgRes.data.premium || false,
+          categoriasDespesa: cfgRes.data.categorias_despesa || CATEGORIAS_DESPESA_PADRAO, bancoPreferido: cfgRes.data.banco_preferido || "", premium: cfgRes.data.premium || false, onboardingCompleto: cfgRes.data.onboarding_completo || false,
         });
       }
       setCarregando(false);
@@ -174,6 +176,7 @@ function useFinancas(userId) {
         user_id: userId, nome: a.nome, cnpj: a.cnpj,
         limite_anual: a.limiteAnual, dia_das: a.diaDAS,
         categorias_receita: a.categoriasReceita, categorias_despesa: a.categoriasDespesa,
+        banco_preferido: a.bancoPreferido, premium: a.premium, onboarding_completo: a.onboardingCompleto,
         updated_at: new Date().toISOString(),
       }, { onConflict: "user_id" });
       return a;
@@ -258,9 +261,10 @@ function useArquivos(userId) {
       setArquivos(prev => ({ ...prev, [caminho]: { id: caminho, nome: file.name, tipo: file.type, url } }));
       return caminho;
     }
-    // Gera URL temporária para visualização
-    const { data } = supabase.storage.from("comprovantes").getPublicUrl(caminho);
-    setArquivos(prev => ({ ...prev, [caminho]: { id: caminho, nome: file.name, tipo: file.type, url: data.publicUrl } }));
+    // Gera URL temporária assinada para visualização (bucket privado)
+    const { data: signedData } = await supabase.storage.from("comprovantes").createSignedUrl(caminho, 3600);
+    const fileUrl = signedData?.signedUrl || "";
+    setArquivos(prev => ({ ...prev, [caminho]: { id: caminho, nome: file.name, tipo: file.type, url: fileUrl } }));
     return caminho;
   }, [userId]);
 
@@ -640,6 +644,11 @@ function WizardPagarDAS({ fin, onVoltar, onConcluir }) {
   const scannerRef = useRef(null);
   const scannerDivId = "scanner-das";
 
+  // Cleanup scanner on unmount
+  useEffect(() => {
+    return () => { if (scannerRef.current) { try { scannerRef.current.stop(); } catch {} } };
+  }, []);
+
   const hoje = new Date();
   const mesRef = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
   const dasDoMes = fin.registrosDAS.find(d => d.mesReferencia === mesRef);
@@ -939,7 +948,11 @@ function CheckoutPIX({ plano, onVoltar, onConfirmar }) {
 
       <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm text-center">
         <p className="text-sm font-medium text-gray-700 mb-4">Escaneie o QR Code no app do banco</p>
-        <img src={qrUrl} alt="QR Code PIX" className="w-44 h-44 mx-auto rounded-lg border border-gray-100"/>
+        <img src={qrUrl} alt="QR Code PIX" className="w-44 h-44 mx-auto rounded-lg border border-gray-100"
+          onError={(e) => { e.target.style.display = "none"; e.target.nextSibling.style.display = "flex"; }}/>
+        <div className="w-44 h-44 mx-auto rounded-lg border border-gray-200 bg-gray-50 items-center justify-center text-center" style={{display:"none"}}>
+          <div><p className="text-sm text-gray-500 font-medium">QR indisponível</p><p className="text-xs text-gray-400 mt-1">Use a chave PIX abaixo</p></div>
+        </div>
 
         <div className="flex items-center gap-3 my-4">
           <div className="flex-1 h-px bg-gray-200"/><span className="text-xs text-gray-400">ou copie o código</span><div className="flex-1 h-px bg-gray-200"/>
@@ -1240,7 +1253,7 @@ function Lancamentos({ fin, arq, nav, onNav }) {
                         <p className="text-sm text-gray-800">{l.categoria}</p>
                         {l.recorrente && <Ic.Repeat s={11} c="#3b82f6"/>}
                         {l.arquivoId && (
-                          <button onClick={() => { const a = arq.obterArquivo(l.arquivoId); if (a) setPreview(a); }}
+                          <button onClick={() => { arq.obterArquivo(l.arquivoId).then(a => { if (a) setPreview(a); }); }}
                             className="text-emerald-500"><Ic.Clip s={13}/></button>
                         )}
                       </div>
@@ -2207,11 +2220,11 @@ function Configuracoes({ fin, auth }) {
       <div className="mt-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-3">Conta</h2>
         <div className="space-y-2">
-          <button onClick={() => { auth.logout(); salvarStorage("mei_onboarding_done", false); }}
+          <button onClick={() => auth.logout()}
             className="w-full bg-white border border-gray-200 text-gray-700 py-3 rounded-xl text-sm font-medium active:bg-gray-50 transition-colors">
             Sair da conta
           </button>
-          <button onClick={async () => { if (confirm("Tem certeza? Isso apaga TODOS os seus dados permanentemente.")) { await auth.deletarConta(); salvarStorage("mei_onboarding_done", false); } }}
+          <button onClick={async () => { if (confirm("Tem certeza? Isso apaga TODOS os seus dados permanentemente.")) { await auth.deletarConta(); } }}
             className="w-full bg-white border border-red-200 text-red-500 py-3 rounded-xl text-sm font-medium active:bg-red-50 transition-colors">
             Excluir minha conta e dados
           </button>
@@ -2402,7 +2415,6 @@ function TelaLogin({ auth }) {
 // ============================================================
 export default function App() {
   const auth = useAuth();
-  const [onboardingCompleto, setOnboardingCompleto] = useState(() => lerStorage("mei_onboarding_done", false));
   const [pagina, setPagina] = useState("dashboard");
   const [lancParaEditar, setLancParaEditar] = useState(null);
   const [relFiltro, setRelFiltro] = useState(null);
@@ -2442,11 +2454,10 @@ export default function App() {
   function concluirOnboarding(nome, cnpj) {
     if (nome.trim()) fin.salvarConfig({ nome: nome.trim() });
     if (cnpj.trim()) fin.salvarConfig({ cnpj: mascaraCNPJ(cnpj) });
-    salvarStorage("mei_onboarding_done", true);
-    setOnboardingCompleto(true);
+    fin.salvarConfig({ onboardingCompleto: true });
   }
 
-  if (!onboardingCompleto) {
+  if (!fin.config.onboardingCompleto) {
     return <div className="max-w-md mx-auto min-h-screen"><Onboarding onConcluir={concluirOnboarding}/></div>;
   }
 
