@@ -875,21 +875,9 @@ function GraficoPizza({ dados, tamanho = 160 }) {
 // ============================================================
 // PACOTE DO CONTADOR — PDF real
 // ============================================================
-async function carregarJsPDF() {
-  if (window.jspdf) return window.jspdf.jsPDF;
-  return new Promise((resolve, reject) => {
-    const s = document.createElement("script");
-    s.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js";
-    s.onload = () => resolve(window.jspdf.jsPDF);
-    s.onerror = () => reject(new Error("Erro ao carregar gerador de PDF"));
-    document.head.appendChild(s);
-  });
-}
-
 function PacoteContador({ fin, nav, lancs, receitas, despesas, comAnexo, arq }) {
   const [status, setStatus] = useState("idle"); // idle | gerando | pronto | erro
 
-  // Carrega imagem de uma URL blob e retorna dataURL
   function carregarImagem(url) {
     return new Promise((resolve) => {
       const img = new Image();
@@ -910,7 +898,7 @@ function PacoteContador({ fin, nav, lancs, receitas, despesas, comAnexo, arq }) 
   async function gerarPDF() {
     setStatus("gerando");
     try {
-      const jsPDF = await carregarJsPDF();
+      const { jsPDF } = await import("jspdf");
       const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
       const pw = doc.internal.pageSize.getWidth();
       const margem = 20;
@@ -1095,67 +1083,74 @@ function PacoteContador({ fin, nav, lancs, receitas, despesas, comAnexo, arq }) 
       });
 
       // ─── COMPROVANTES ANEXADOS ───
-      const lancComAnexo = lancs.filter(l => l.arquivoId);
-      const pdfsAnexos = [];
+      try {
+        const lancComAnexo = lancs.filter(l => l.arquivoId);
+        const pdfsAnexos = [];
 
-      if (lancComAnexo.length > 0) {
-        doc.addPage();
-        y = 20;
-        doc.setFillColor(5, 150, 105);
-        doc.rect(0, 0, pw, 25, "F");
-        doc.setFontSize(14); doc.setFont("helvetica", "bold"); doc.setTextColor(255, 255, 255);
-        doc.text("Comprovantes Anexados", margem, 17);
-        y = 35;
+        if (lancComAnexo.length > 0 && arq) {
+          doc.addPage();
+          y = 20;
+          doc.setFillColor(5, 150, 105);
+          doc.rect(0, 0, pw, 25, "F");
+          doc.setFontSize(14); doc.setFont("helvetica", "bold"); doc.setTextColor(255, 255, 255);
+          doc.text("Comprovantes Anexados", margem, 17);
+          y = 35;
 
-        for (const l of lancComAnexo) {
-          const arquivo = arq.obterArquivo(l.arquivoId);
-          if (!arquivo) continue;
+          let temAlgumAnexo = false;
 
-          if (arquivo.tipo && arquivo.tipo.startsWith("image")) {
-            // Imagem: embutir no PDF
-            const imgData = await carregarImagem(arquivo.url);
-            if (imgData) {
-              checkPage(80);
-              // Título do comprovante
-              doc.setFontSize(9); doc.setFont("helvetica", "bold"); doc.setTextColor(80, 80, 80);
-              const dataFmt = new Date(l.data + "T12:00:00").toLocaleDateString("pt-BR");
-              doc.text(`${l.categoria} — ${dataFmt} — ${fmt(l.valor)}`, margem, y);
-              y += 3;
-              doc.setFontSize(7); doc.setFont("helvetica", "normal"); doc.setTextColor(150, 150, 150);
-              doc.text(arquivo.nome, margem, y);
-              y += 4;
+          for (const l of lancComAnexo) {
+            const arquivo = arq.obterArquivo(l.arquivoId);
+            if (!arquivo || !arquivo.url) continue;
 
-              // Calcular dimensões mantendo proporção
-              const maxW = largura;
-              const maxH = 180;
-              const ratio = Math.min(maxW / imgData.w, maxH / imgData.h);
-              const imgW = imgData.w * ratio;
-              const imgH = imgData.h * ratio;
-
-              if (y + imgH + 10 > 280) { doc.addPage(); y = 20; }
-              doc.addImage(imgData.dataUrl, "JPEG", margem, y, imgW, imgH);
-              y += imgH + 10;
+            if (arquivo.tipo && arquivo.tipo.startsWith("image")) {
+              try {
+                const imgData = await carregarImagem(arquivo.url);
+                if (imgData && imgData.dataUrl) {
+                  temAlgumAnexo = true;
+                  if (y + 80 > 280) { doc.addPage(); y = 20; }
+                  doc.setFontSize(9); doc.setFont("helvetica", "bold"); doc.setTextColor(80, 80, 80);
+                  const dataFmt = new Date(l.data + "T12:00:00").toLocaleDateString("pt-BR");
+                  doc.text(`${l.categoria} — ${dataFmt} — ${fmt(l.valor)}`, margem, y);
+                  y += 3;
+                  doc.setFontSize(7); doc.setFont("helvetica", "normal"); doc.setTextColor(150, 150, 150);
+                  doc.text(arquivo.nome, margem, y);
+                  y += 4;
+                  const maxW = largura;
+                  const maxH = 180;
+                  const ratio = Math.min(maxW / imgData.w, maxH / imgData.h);
+                  const imgW = imgData.w * ratio;
+                  const imgH = imgData.h * ratio;
+                  if (y + imgH + 10 > 280) { doc.addPage(); y = 20; }
+                  doc.addImage(imgData.dataUrl, "JPEG", margem, y, imgW, imgH);
+                  y += imgH + 10;
+                }
+              } catch { /* imagem falhou, pular */ }
+            } else {
+              pdfsAnexos.push({ lancamento: l, arquivo });
             }
-          } else {
-            // PDF ou outro: listar referência
-            pdfsAnexos.push({ lancamento: l, arquivo });
+          }
+
+          if (pdfsAnexos.length > 0) {
+            if (y + 20 > 280) { doc.addPage(); y = 20; }
+            doc.setFontSize(10); doc.setFont("helvetica", "bold"); doc.setTextColor(80, 80, 80);
+            doc.text("Arquivos PDF anexados (enviar separadamente):", margem, y);
+            y += 6;
+            pdfsAnexos.forEach(({ lancamento: l2, arquivo: a2 }) => {
+              if (y + 7 > 280) { doc.addPage(); y = 20; }
+              const dataFmt2 = new Date(l2.data + "T12:00:00").toLocaleDateString("pt-BR");
+              doc.setFontSize(8); doc.setFont("helvetica", "normal"); doc.setTextColor(100, 100, 100);
+              doc.text(`• ${a2.nome} — ${l2.categoria} — ${dataFmt2} — ${fmt(l2.valor)}`, margem + 2, y);
+              y += 5;
+            });
+          }
+
+          // Se nenhum anexo foi adicionado, remover a página extra
+          if (!temAlgumAnexo && pdfsAnexos.length === 0) {
+            doc.deletePage(doc.internal.getNumberOfPages());
           }
         }
-
-        // Listar PDFs que não puderam ser embutidos
-        if (pdfsAnexos.length > 0) {
-          checkPage(20);
-          doc.setFontSize(10); doc.setFont("helvetica", "bold"); doc.setTextColor(80, 80, 80);
-          doc.text("Arquivos PDF anexados (enviar separadamente):", margem, y);
-          y += 6;
-          pdfsAnexos.forEach(({ lancamento: l, arquivo: a }) => {
-            checkPage(7);
-            const dataFmt = new Date(l.data + "T12:00:00").toLocaleDateString("pt-BR");
-            doc.setFontSize(8); doc.setFont("helvetica", "normal"); doc.setTextColor(100, 100, 100);
-            doc.text(`• ${a.nome} — ${l.categoria} — ${dataFmt} — ${fmt(l.valor)}`, margem + 2, y);
-            y += 5;
-          });
-        }
+      } catch (anexoErr) {
+        console.warn("Erro ao anexar comprovantes, gerando PDF sem eles:", anexoErr);
       }
 
       // ─── RODAPÉ ───
