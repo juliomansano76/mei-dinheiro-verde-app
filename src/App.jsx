@@ -886,10 +886,117 @@ function WizardPagarDAS({ fin, onVoltar, onConcluir }) {
 // ============================================================
 // PAYWALL PREMIUM
 // ============================================================
-function ModalPremium({ onFechar }) {
+// ============================================================
+// PIX PAYLOAD GENERATOR
+// ============================================================
+function gerarPixPayload(chave, nome, cidade, valor) {
+  function f(id, val) { return id + val.length.toString().padStart(2, "0") + val; }
+  let p = "";
+  p += f("00", "01");
+  p += f("26", f("00", "br.gov.bcb.pix") + f("01", chave));
+  p += f("52", "0000");
+  p += f("53", "986");
+  if (valor) p += f("54", valor.toFixed(2));
+  p += f("58", "BR");
+  p += f("59", nome.substring(0, 25));
+  p += f("60", cidade.substring(0, 15));
+  p += f("62", f("05", "***"));
+  p += "6304";
+  let crc = 0xFFFF;
+  for (let i = 0; i < p.length; i++) {
+    crc ^= p.charCodeAt(i) << 8;
+    for (let j = 0; j < 8; j++) crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) : (crc << 1);
+  }
+  return p + (crc & 0xFFFF).toString(16).toUpperCase().padStart(4, "0");
+}
+
+// ============================================================
+// CHECKOUT PIX
+// ============================================================
+function CheckoutPIX({ plano, onVoltar, onConfirmar }) {
+  const [copiado, setCopiado] = useState(false);
+  const [confirmando, setConfirmando] = useState(false);
+  const valor = plano === "anual" ? 119.90 : 14.90;
+  const pixPayload = gerarPixPayload("65076198000132", "JCM Consultoria", "Americana", valor);
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(pixPayload)}`;
+
+  async function copiarPix() {
+    try { await navigator.clipboard.writeText(pixPayload); } catch {
+      const ta = document.createElement("textarea"); ta.value = pixPayload;
+      document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta);
+    }
+    setCopiado(true); setTimeout(() => setCopiado(false), 3000);
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 px-5 pt-4 pb-10">
+      <button onClick={onVoltar} className="flex items-center gap-1 text-gray-500 text-sm mb-4"><Ic.Back s={18}/> Voltar</button>
+      <div className="text-center mb-5">
+        <p className="text-sm text-gray-500">Plano Premium {plano === "anual" ? "Anual" : "Mensal"}</p>
+        <p className="text-3xl font-bold text-emerald-700 mt-1">{fmt(valor)}</p>
+        {plano === "anual" && <p className="text-xs text-gray-400 mt-1">R$ 9,99/mês — economia de 33%</p>}
+      </div>
+
+      <div className="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm text-center">
+        <p className="text-sm font-medium text-gray-700 mb-4">Escaneie o QR Code no app do banco</p>
+        <img src={qrUrl} alt="QR Code PIX" className="w-44 h-44 mx-auto rounded-lg border border-gray-100"/>
+
+        <div className="flex items-center gap-3 my-4">
+          <div className="flex-1 h-px bg-gray-200"/><span className="text-xs text-gray-400">ou copie o código</span><div className="flex-1 h-px bg-gray-200"/>
+        </div>
+
+        <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 text-left mb-3">
+          <p className="text-[10px] text-gray-400">Chave PIX (CNPJ)</p>
+          <p className="text-sm text-gray-800 font-mono mt-0.5">65.076.198/0001-32</p>
+        </div>
+
+        <button onClick={copiarPix}
+          className={`w-full py-3 rounded-xl text-sm font-medium transition-all ${copiado ? "bg-emerald-100 text-emerald-700 border-2 border-emerald-400" : "bg-emerald-50 text-emerald-600 border border-emerald-200 active:bg-emerald-100"}`}>
+          {copiado ? "✓ Código PIX copiado!" : "Copiar código PIX Copia e Cola"}
+        </button>
+      </div>
+
+      <div className="bg-white border border-gray-100 rounded-2xl p-4 mt-4 shadow-sm">
+        <p className="text-xs text-gray-400 mb-2">Dados do recebedor</p>
+        <div className="space-y-1.5 text-sm">
+          <div className="flex justify-between"><span className="text-gray-500">Empresa</span><span className="text-gray-800 font-medium">JCM Consultoria</span></div>
+          <div className="flex justify-between"><span className="text-gray-500">CNPJ</span><span className="text-gray-800">65.076.198/0001-32</span></div>
+          <div className="flex justify-between"><span className="text-gray-500">Valor</span><span className="text-emerald-600 font-medium">{fmt(valor)}</span></div>
+        </div>
+      </div>
+
+      {!confirmando ? (
+        <button onClick={() => setConfirmando(true)}
+          className="mt-4 w-full bg-emerald-600 text-white py-4 rounded-xl font-semibold text-base active:bg-emerald-700">
+          Já paguei
+        </button>
+      ) : (
+        <div className="mt-4 bg-emerald-50 border border-emerald-200 rounded-2xl p-5 text-center">
+          <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3">
+            <Ic.Check s={24} c="#059669"/>
+          </div>
+          <p className="text-sm font-medium text-emerald-800">Pagamento informado!</p>
+          <p className="text-xs text-emerald-600 mt-2 leading-relaxed">Seu Premium será ativado em até 2 horas após a confirmação do pagamento. Você receberá uma notificação quando estiver ativo.</p>
+          <button onClick={onConfirmar} className="mt-4 w-full bg-emerald-600 text-white py-3 rounded-xl text-sm font-medium active:bg-emerald-700">Voltar ao app</button>
+        </div>
+      )}
+
+      <div className="flex items-center justify-center gap-1.5 mt-4">
+        <Ic.Check s={12} c="#9ca3af"/>
+        <p className="text-[11px] text-gray-400">Pagamento seguro via PIX • Cancelamento a qualquer momento</p>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// MODAL PREMIUM
+// ============================================================
+function ModalPremium({ onFechar, onAssinar }) {
+  const [plano, setPlano] = useState("mensal");
   return (
     <div className="fixed inset-0 bg-black/60 z-[70] flex items-end sm:items-center justify-center" onClick={onFechar}>
-      <div className="bg-white rounded-t-3xl sm:rounded-2xl max-w-md w-full max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-t-3xl sm:rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="bg-emerald-600 rounded-t-3xl sm:rounded-t-2xl p-6 text-white text-center">
           <span className="text-3xl">⭐</span>
           <h2 className="text-xl font-bold mt-2">MEI Dinheiro Verde Premium</h2>
@@ -899,36 +1006,47 @@ function ModalPremium({ onFechar }) {
           <div className="space-y-3">
             {[
               { icone: "📦", texto: "Pacote do contador em PDF com comprovantes" },
+              { icone: "📋", texto: "Assistente de pagamento do DAS com scanner" },
               { icone: "📷", texto: "Anexar fotos e documentos aos lançamentos" },
-              { icone: "📊", texto: "Relatórios avançados e evolução mensal" },
-              { icone: "📋", texto: "Assistente de pagamento do DAS" },
               { icone: "🏷️", texto: "Categorias personalizáveis" },
+              { icone: "📊", texto: "Relatórios avançados e evolução mensal" },
               { icone: "📤", texto: "Compartilhar resumo via WhatsApp" },
               { icone: "💾", texto: "Backup e exportação de dados" },
               { icone: "📈", texto: "Projeção de faturamento até dezembro" },
             ].map((item, i) => (
               <div key={i} className="flex items-center gap-3 text-sm text-gray-700">
-                <span className="text-lg">{item.icone}</span>
-                <span>{item.texto}</span>
+                <span className="text-lg">{item.icone}</span><span>{item.texto}</span>
               </div>
             ))}
           </div>
 
-          <div className="mt-6 bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-center">
-            <p className="text-sm text-gray-500">Por apenas</p>
-            <p className="text-3xl font-bold text-emerald-700">R$ 14,90<span className="text-base font-normal text-gray-500">/mês</span></p>
-            <p className="text-xs text-gray-400 mt-1">ou R$ 119,90/ano (R$ 9,99/mês)</p>
+          <div className="mt-5 flex gap-3">
+            <button onClick={() => setPlano("mensal")}
+              className={`flex-1 rounded-2xl p-4 text-center transition-all ${plano === "mensal" ? "bg-emerald-50 border-2 border-emerald-500" : "bg-gray-50 border border-gray-200"}`}>
+              <p className="text-[10px] text-emerald-600 font-medium">MENSAL</p>
+              <p className="text-2xl font-bold text-emerald-800 mt-1">R$ 14,90</p>
+              <p className="text-[11px] text-gray-400">/mês</p>
+            </button>
+            <button onClick={() => setPlano("anual")}
+              className={`flex-1 rounded-2xl p-4 text-center transition-all relative ${plano === "anual" ? "bg-emerald-50 border-2 border-emerald-500" : "bg-gray-50 border border-gray-200"}`}>
+              <span className="absolute -top-2 left-1/2 -translate-x-1/2 bg-emerald-600 text-white text-[10px] px-2.5 py-0.5 rounded-full font-medium">-33%</span>
+              <p className="text-[10px] text-emerald-600 font-medium">ANUAL</p>
+              <p className="text-2xl font-bold text-emerald-800 mt-1">R$ 119,90</p>
+              <p className="text-[11px] text-gray-400">R$ 9,99/mês</p>
+            </button>
           </div>
 
-          <a href="https://wa.me/5519999999999?text=Quero%20assinar%20o%20MEI%20Dinheiro%20Verde%20Premium"
-            target="_blank" rel="noopener noreferrer"
-            className="mt-4 w-full bg-emerald-600 text-white py-4 rounded-xl font-semibold text-base text-center block active:bg-emerald-700">
-            Quero ser Premium
-          </a>
-          <button onClick={onFechar}
-            className="mt-3 w-full text-sm text-gray-400 text-center py-2">
-            Agora não
+          <button onClick={() => onAssinar(plano)}
+            className="mt-4 w-full bg-emerald-600 text-white py-4 rounded-xl font-semibold text-base active:bg-emerald-700">
+            Assinar Premium
           </button>
+
+          <div className="flex items-center justify-center gap-1.5 mt-3">
+            <Ic.Check s={12} c="#9ca3af"/>
+            <p className="text-[11px] text-gray-400">Pagamento seguro via PIX • CNPJ 65.076.198/0001-32</p>
+          </div>
+
+          <button onClick={onFechar} className="mt-2 w-full text-sm text-gray-400 text-center py-2">Agora não</button>
         </div>
       </div>
     </div>
@@ -947,7 +1065,7 @@ function usePremium(config) {
 
   return { isPremium, modalAberto, setModalAberto, verificarPremium };
 }
-function Dashboard({ fin, nav, onNav }) {
+function Dashboard({ fin, nav, onNav, premium }) {
   const lancs = fin.lancamentosDoMesAno(nav.mes, nav.ano);
   const receitas = fin.receitasDoMesAno(nav.mes, nav.ano);
   const despesas = fin.despesasDoMesAno(nav.mes, nav.ano);
@@ -983,6 +1101,7 @@ function Dashboard({ fin, nav, onNav }) {
       {/* Compartilhar resumo */}
       {nav.isAtual && lancs.length > 0 && (
         <button onClick={() => {
+          if (!premium.verificarPremium()) return;
           const texto = `📊 *Resumo ${MESES_NOME[nav.mes]}/${nav.ano}*\n\n`
             + `💰 Receitas: ${fmt(receitas)}\n`
             + `💸 Despesas: ${fmt(despesas)}\n`
@@ -1038,7 +1157,7 @@ function Dashboard({ fin, nav, onNav }) {
               </div>
             </div>
             <div className="flex gap-2 mt-3">
-              <button onClick={() => onNav("wizard-das")}
+              <button onClick={() => { if (premium.verificarPremium()) onNav("wizard-das"); }}
                 className="flex-1 bg-emerald-600 text-white py-2.5 rounded-xl text-xs font-medium active:bg-emerald-700 transition-colors">
                 Pagar DAS
               </button>
@@ -1355,7 +1474,7 @@ function GraficoPizza({ dados, tamanho = 160 }) {
 // ============================================================
 // PACOTE DO CONTADOR — PDF real
 // ============================================================
-function PacoteContador({ fin, nav, lancs, receitas, despesas, comAnexo, arq }) {
+function PacoteContador({ fin, nav, lancs, receitas, despesas, comAnexo, arq, premium }) {
   const [status, setStatus] = useState("idle"); // idle | gerando | pronto | erro
 
   function carregarImagem(url) {
@@ -1689,7 +1808,7 @@ function PacoteContador({ fin, nav, lancs, receitas, despesas, comAnexo, arq }) 
         </div>
       ) : (
         <div className="space-y-2">
-          <button onClick={gerarPDF} disabled={status === "gerando" || lancs.length === 0}
+          <button onClick={() => { if (premium.verificarPremium()) gerarPDF(); }} disabled={status === "gerando" || lancs.length === 0}
             className={`w-full py-3 rounded-xl font-medium text-sm flex items-center justify-center gap-2 transition-all ${lancs.length === 0 ? "bg-gray-200 text-gray-400" : status === "gerando" ? "bg-emerald-400 text-white" : "bg-emerald-600 text-white active:bg-emerald-700 active:scale-[0.98]"}`}>
             {status === "gerando" ? (
               <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/> Gerando PDF...</>
@@ -1707,7 +1826,7 @@ function PacoteContador({ fin, nav, lancs, receitas, despesas, comAnexo, arq }) 
 // ============================================================
 // RELATÓRIOS
 // ============================================================
-function Relatorios({ fin, nav, filtroInicial, arq }) {
+function Relatorios({ fin, nav, filtroInicial, arq, premium }) {
   const [evolucaoCat, setEvolucaoCat] = useState(null);
   const despRef = useRef(null);
   const recRef = useRef(null);
@@ -1825,7 +1944,7 @@ function Relatorios({ fin, nav, filtroInicial, arq }) {
       )}
 
       {/* Pacote do Contador */}
-      <PacoteContador fin={fin} nav={nav} lancs={lancs} receitas={receitas} despesas={despesas} comAnexo={comAnexo} arq={arq}/>
+      <PacoteContador fin={fin} nav={nav} lancs={lancs} receitas={receitas} despesas={despesas} comAnexo={comAnexo} arq={arq} premium={premium}/>
 
       {lancs.length === 0 && <div className="mt-10 text-center"><p className="text-gray-400 text-sm">Registre lançamentos para ver relatórios</p></div>}
     </div>
@@ -2287,6 +2406,7 @@ export default function App() {
   const [pagina, setPagina] = useState("dashboard");
   const [lancParaEditar, setLancParaEditar] = useState(null);
   const [relFiltro, setRelFiltro] = useState(null);
+  const [checkoutPlano, setCheckoutPlano] = useState(null);
   const fin = useFinancas(auth.usuario?.id);
   const arq = useArquivos(auth.usuario?.id);
   const nav = useMesNavegacao();
@@ -2340,13 +2460,13 @@ export default function App() {
 
   function renderPagina() {
     switch (pagina) {
-      case "dashboard": return <Dashboard fin={fin} nav={nav} onNav={navegar}/>;
+      case "dashboard": return <Dashboard fin={fin} nav={nav} onNav={navegar} premium={premium}/>;
       case "lancamentos": return <Lancamentos fin={fin} arq={arq} nav={nav} onNav={navegar}/>;
       case "novo": return <NovoLancamento fin={fin} arq={arq} onVoltar={() => navegar("lancamentos")}/>;
       case "editar": return <NovoLancamento fin={fin} arq={arq} onVoltar={() => navegar("lancamentos")} lancamentoEditando={lancParaEditar}/>;
       case "wizard-das": return <WizardPagarDAS fin={fin} onVoltar={() => navegar("dashboard")} onConcluir={() => navegar("dashboard")}/>;
       case "novo-das": return <NovoLancamento fin={fin} arq={arq} onVoltar={() => navegar("dashboard")} modoInicial="das"/>;
-      case "relatorios": return <Relatorios fin={fin} nav={nav} filtroInicial={relFiltro} arq={arq}/>;
+      case "relatorios": return <Relatorios fin={fin} nav={nav} filtroInicial={relFiltro} arq={arq} premium={premium}/>;
       case "config": return <Configuracoes fin={fin} auth={auth}/>;
       default: return <Dashboard fin={fin} nav={nav} onNav={navegar}/>;
     }
@@ -2357,7 +2477,8 @@ export default function App() {
     <div className="max-w-md mx-auto min-h-screen bg-gray-50">
       {renderPagina()}
       {!semNav && <BottomNav pagina={pagina} onNav={navegar}/>}
-      {premium.modalAberto && <ModalPremium onFechar={() => premium.setModalAberto(false)}/>}
+      {premium.modalAberto && <ModalPremium onFechar={() => premium.setModalAberto(false)} onAssinar={(plano) => { premium.setModalAberto(false); setCheckoutPlano(plano); setPagina("checkout"); }}/>}
+      {pagina === "checkout" && <div className="fixed inset-0 z-[60] bg-gray-50"><CheckoutPIX plano={checkoutPlano} onVoltar={() => { setCheckoutPlano(null); setPagina("dashboard"); }} onConfirmar={() => { setCheckoutPlano(null); setPagina("dashboard"); }}/></div>}
     </div>
   );
 }
