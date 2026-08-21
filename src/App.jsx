@@ -75,7 +75,7 @@ function useFinancas(userId) {
   const [config, setConfig] = useState({
     nome: "", cnpj: "", limiteAnual: 81000, diaDAS: 20,
     categoriasReceita: CATEGORIAS_RECEITA_PADRAO,
-    categoriasDespesa: CATEGORIAS_DESPESA_PADRAO, bancoPreferido: "", premium: false, onboardingCompleto: false,
+    categoriasDespesa: CATEGORIAS_DESPESA_PADRAO, bancoPreferido: "", premium: false, premiumAte: null, onboardingCompleto: false,
   });
   const [carregando, setCarregando] = useState(true);
 
@@ -104,7 +104,7 @@ function useFinancas(userId) {
           nome: cfgRes.data.nome || "", cnpj: cfgRes.data.cnpj || "",
           limiteAnual: Number(cfgRes.data.limite_anual) || 81000, diaDAS: cfgRes.data.dia_das || 20,
           categoriasReceita: cfgRes.data.categorias_receita || CATEGORIAS_RECEITA_PADRAO,
-          categoriasDespesa: cfgRes.data.categorias_despesa || CATEGORIAS_DESPESA_PADRAO, bancoPreferido: cfgRes.data.banco_preferido || "", premium: cfgRes.data.premium || false, onboardingCompleto: cfgRes.data.onboarding_completo || false,
+          categoriasDespesa: cfgRes.data.categorias_despesa || CATEGORIAS_DESPESA_PADRAO, bancoPreferido: cfgRes.data.banco_preferido || "", premium: cfgRes.data.premium || false, premiumAte: cfgRes.data.premium_ate || null, onboardingCompleto: cfgRes.data.onboarding_completo || false,
         });
       }
       setCarregando(false);
@@ -176,7 +176,7 @@ function useFinancas(userId) {
         user_id: userId, nome: a.nome, cnpj: a.cnpj,
         limite_anual: a.limiteAnual, dia_das: a.diaDAS,
         categorias_receita: a.categoriasReceita, categorias_despesa: a.categoriasDespesa,
-        banco_preferido: a.bancoPreferido, premium: a.premium, onboarding_completo: a.onboardingCompleto,
+        banco_preferido: a.bancoPreferido, premium: a.premium, premium_ate: a.premiumAte, onboarding_completo: a.onboardingCompleto,
         updated_at: new Date().toISOString(),
       }, { onConflict: "user_id" });
       return a;
@@ -930,7 +930,7 @@ function CheckoutPIX({ plano, onVoltar, onConfirmar, userEmail }) {
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(pixPayload)}`;
 
   // IMPORTANTE: substitua pelo seu número real de WhatsApp
-  const WHATSAPP_ADMIN = "5519993193813";
+  const WHATSAPP_ADMIN = "5519999999999";
 
   function notificarAdmin() {
     const planoNome = plano === "anual" ? "Anual (R$ 119,90)" : "Mensal (R$ 14,90)";
@@ -1090,7 +1090,11 @@ function ModalPremium({ onFechar, onAssinar }) {
 }
 
 function usePremium(config) {
-  const isPremium = config.premium === true;
+  const agora = new Date();
+  const premiumAte = config.premiumAte ? new Date(config.premiumAte) : null;
+  const isPremium = config.premium === true && premiumAte && premiumAte > agora;
+  const vencido = config.premium === true && premiumAte && premiumAte <= agora;
+  const diasRestantes = isPremium ? Math.ceil((premiumAte - agora) / (1000 * 60 * 60 * 24)) : 0;
   const [modalAberto, setModalAberto] = useState(false);
 
   function verificarPremium() {
@@ -1099,7 +1103,7 @@ function usePremium(config) {
     return false;
   }
 
-  return { isPremium, modalAberto, setModalAberto, verificarPremium };
+  return { isPremium, vencido, diasRestantes, premiumAte, modalAberto, setModalAberto, verificarPremium };
 }
 function Dashboard({ fin, nav, onNav, premium }) {
   const lancs = fin.lancamentosDoMesAno(nav.mes, nav.ano);
@@ -2168,9 +2172,19 @@ function Configuracoes({ fin, auth, premium }) {
           <div className="flex items-center gap-3">
             <span className="text-2xl">⭐</span>
             <div><p className="text-sm font-semibold text-white">Plano Premium</p>
-              <p className="text-xs text-emerald-200">Todas as funcionalidades ativas</p></div>
+              <p className="text-xs text-emerald-200">{premium.diasRestantes} dia{premium.diasRestantes !== 1 ? "s" : ""} restante{premium.diasRestantes !== 1 ? "s" : ""} — vence em {new Date(premium.premiumAte).toLocaleDateString("pt-BR")}</p></div>
           </div>
         </div>
+      ) : premium.vencido ? (
+        <button onClick={() => premium.verificarPremium()}
+          className="mt-4 w-full bg-red-50 border border-red-200 rounded-2xl p-4 flex items-center justify-between active:bg-red-100 transition-colors">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">⏰</span>
+            <div className="text-left"><p className="text-sm font-semibold text-red-800">Premium vencido</p>
+              <p className="text-xs text-red-500">Renove para continuar usando as funcionalidades Premium</p></div>
+          </div>
+          <Ic.Fwd s={16} c="#ef4444"/>
+        </button>
       ) : (
         <button onClick={() => premium.verificarPremium()}
           className="mt-4 w-full bg-gray-50 border border-emerald-200 rounded-2xl p-4 flex items-center justify-between active:bg-emerald-50 transition-colors">
