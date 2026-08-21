@@ -170,18 +170,19 @@ function useFinancas(userId) {
   }, []);
 
   const salvarConfig = useCallback(async (novaConfig) => {
-    setConfig(prev => {
-      const a = { ...prev, ...novaConfig };
-      supabase.from("config_mei").upsert({
-        user_id: userId, nome: a.nome, cnpj: a.cnpj,
-        limite_anual: a.limiteAnual, dia_das: a.diaDAS,
-        categorias_receita: a.categoriasReceita, categorias_despesa: a.categoriasDespesa,
-        banco_preferido: a.bancoPreferido, premium: a.premium, premium_ate: a.premiumAte, onboarding_completo: a.onboardingCompleto,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: "user_id" });
-      return a;
-    });
-  }, [userId]);
+    const atualizada = { ...config, ...novaConfig };
+    setConfig(atualizada);
+    // Salva no Supabase fora do setState
+    const { error } = await supabase.from("config_mei").upsert({
+      user_id: userId, nome: atualizada.nome, cnpj: atualizada.cnpj,
+      limite_anual: atualizada.limiteAnual, dia_das: atualizada.diaDAS,
+      categorias_receita: atualizada.categoriasReceita, categorias_despesa: atualizada.categoriasDespesa,
+      banco_preferido: atualizada.bancoPreferido || "", premium: atualizada.premium || false,
+      premium_ate: atualizada.premiumAte || null, onboarding_completo: atualizada.onboardingCompleto || false,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "user_id" });
+    if (error) console.error("Erro ao salvar config:", error);
+  }, [userId, config]);
 
   const limparTudo = useCallback(async () => {
     setLancamentos([]); setRegistrosDAS([]);
@@ -2547,9 +2548,10 @@ export default function App() {
   }
 
   function concluirOnboarding(nome, cnpj) {
-    if (nome.trim()) fin.salvarConfig({ nome: nome.trim() });
-    if (cnpj.trim()) fin.salvarConfig({ cnpj: mascaraCNPJ(cnpj) });
-    fin.salvarConfig({ onboardingCompleto: true });
+    const dados = { onboardingCompleto: true };
+    if (nome.trim()) dados.nome = nome.trim();
+    if (cnpj.trim()) dados.cnpj = mascaraCNPJ(cnpj);
+    fin.salvarConfig(dados);
   }
 
   if (!fin.config.onboardingCompleto) {
