@@ -922,12 +922,35 @@ function gerarPixPayload(chave, nome, cidade, valor) {
 // ============================================================
 // CHECKOUT PIX
 // ============================================================
-function CheckoutPIX({ plano, onVoltar, onConfirmar }) {
+function CheckoutPIX({ plano, onVoltar, onConfirmar, userEmail }) {
   const [copiado, setCopiado] = useState(false);
   const [confirmando, setConfirmando] = useState(false);
   const valor = plano === "anual" ? 119.90 : 14.90;
   const pixPayload = gerarPixPayload("65076198000132", "JCM Consultoria", "Americana", valor);
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(pixPayload)}`;
+
+  // IMPORTANTE: substitua pelo seu número real de WhatsApp
+  const WHATSAPP_ADMIN = "5519993193813";
+
+  function notificarAdmin() {
+    const planoNome = plano === "anual" ? "Anual (R$ 119,90)" : "Mensal (R$ 14,90)";
+    const msg = `🔔 *Nova assinatura Premium*\n\n`
+      + `📧 E-mail: ${userEmail}\n`
+      + `📋 Plano: ${planoNome}\n`
+      + `📅 Data: ${new Date().toLocaleDateString("pt-BR")} ${new Date().toLocaleTimeString("pt-BR")}\n\n`
+      + `Ativar no Supabase → config_mei → premium = true`;
+    window.open(`https://wa.me/${WHATSAPP_ADMIN}?text=${encodeURIComponent(msg)}`, "_blank");
+  }
+
+  // Também registra na tabela para controle
+  async function registrarAssinatura() {
+    try {
+      await supabase.from("config_mei").update({
+        premium_ate: null, // será preenchido pelo admin ao ativar
+        updated_at: new Date().toISOString(),
+      }).eq("user_id", (await supabase.auth.getUser()).data.user?.id);
+    } catch {}
+  }
 
   async function copiarPix() {
     try { await navigator.clipboard.writeText(pixPayload); } catch {
@@ -979,7 +1002,7 @@ function CheckoutPIX({ plano, onVoltar, onConfirmar }) {
       </div>
 
       {!confirmando ? (
-        <button onClick={() => setConfirmando(true)}
+        <button onClick={() => { setConfirmando(true); notificarAdmin(); registrarAssinatura(); }}
           className="mt-4 w-full bg-emerald-600 text-white py-4 rounded-xl font-semibold text-base active:bg-emerald-700">
           Já paguei
         </button>
@@ -2547,7 +2570,7 @@ export default function App() {
       {renderPagina()}
       {!semNav && <BottomNav pagina={pagina} onNav={navegar}/>}
       {premium.modalAberto && <ModalPremium onFechar={() => premium.setModalAberto(false)} onAssinar={(plano) => { premium.setModalAberto(false); setCheckoutPlano(plano); setPagina("checkout"); }}/>}
-      {pagina === "checkout" && <div className="fixed inset-0 z-[60] bg-gray-50"><CheckoutPIX plano={checkoutPlano} onVoltar={() => { setCheckoutPlano(null); setPagina("dashboard"); }} onConfirmar={() => { setCheckoutPlano(null); setPagina("dashboard"); }}/></div>}
+      {pagina === "checkout" && <div className="fixed inset-0 z-[60] bg-gray-50"><CheckoutPIX plano={checkoutPlano} userEmail={auth.usuario?.email} onVoltar={() => { setCheckoutPlano(null); setPagina("dashboard"); }} onConfirmar={() => { setCheckoutPlano(null); setPagina("dashboard"); }}/></div>}
     </div>
   );
 }
