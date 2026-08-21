@@ -73,7 +73,7 @@ function useFinancas(userId) {
   const [config, setConfig] = useState({
     nome: "", cnpj: "", limiteAnual: 81000, diaDAS: 20,
     categoriasReceita: CATEGORIAS_RECEITA_PADRAO,
-    categoriasDespesa: CATEGORIAS_DESPESA_PADRAO,
+    categoriasDespesa: CATEGORIAS_DESPESA_PADRAO, bancoPreferido: "", premium: false,
   });
   const [carregando, setCarregando] = useState(true);
 
@@ -102,7 +102,7 @@ function useFinancas(userId) {
           nome: cfgRes.data.nome || "", cnpj: cfgRes.data.cnpj || "",
           limiteAnual: Number(cfgRes.data.limite_anual) || 81000, diaDAS: cfgRes.data.dia_das || 20,
           categoriasReceita: cfgRes.data.categorias_receita || CATEGORIAS_RECEITA_PADRAO,
-          categoriasDespesa: cfgRes.data.categorias_despesa || CATEGORIAS_DESPESA_PADRAO,
+          categoriasDespesa: cfgRes.data.categorias_despesa || CATEGORIAS_DESPESA_PADRAO, bancoPreferido: cfgRes.data.banco_preferido || "", premium: cfgRes.data.premium || false,
         });
       }
       setCarregando(false);
@@ -611,6 +611,342 @@ function AssistenteFinanceiro({ fin, nav, receitas, despesas, saldo }) {
 // ============================================================
 // DASHBOARD
 // ============================================================
+
+// ============================================================
+// BANCOS BRASILEIROS (deep links)
+// ============================================================
+const BANCOS = [
+  { id: "nubank", nome: "Nubank", cor: "#820AD1", link: "https://nubank.com.br/pagar" },
+  { id: "inter", nome: "Inter", cor: "#FF7A00", link: "https://internetbanking.bancointer.com.br" },
+  { id: "itau", nome: "Itaú", cor: "#003399", link: "https://www.itau.com.br" },
+  { id: "bb", nome: "Banco do Brasil", cor: "#FFFF00", txtCor: "#003366", link: "https://www.bb.com.br" },
+  { id: "caixa", nome: "Caixa", cor: "#005CA9", link: "https://www.caixa.gov.br" },
+  { id: "bradesco", nome: "Bradesco", cor: "#CC092F", link: "https://banco.bradesco" },
+  { id: "santander", nome: "Santander", cor: "#EC0000", link: "https://www.santander.com.br" },
+  { id: "mercadopago", nome: "Mercado Pago", cor: "#009EE3", link: "https://www.mercadopago.com.br" },
+  { id: "c6", nome: "C6 Bank", cor: "#242424", link: "https://www.c6bank.com.br" },
+  { id: "picpay", nome: "PicPay", cor: "#21C25E", link: "https://picpay.com" },
+];
+
+// ============================================================
+// WIZARD DE PAGAMENTO DAS
+// ============================================================
+function WizardPagarDAS({ fin, onVoltar, onConcluir }) {
+  const [passo, setPasso] = useState(0);
+  const [codigoBarras, setCodigoBarras] = useState("");
+  const [scanning, setScanning] = useState(false);
+  const [copiado, setCopiado] = useState(false);
+  const [bancoSelecionado, setBancoSelecionado] = useState(() => fin.config.bancoPreferido || "");
+  const scannerRef = useRef(null);
+  const scannerDivId = "scanner-das";
+
+  const hoje = new Date();
+  const mesRef = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}`;
+  const dasDoMes = fin.registrosDAS.find(d => d.mesReferencia === mesRef);
+
+  // Formata código de barras em blocos
+  function formatarCodigo(cod) {
+    const nums = cod.replace(/\D/g, "").slice(0, 47);
+    if (nums.length <= 12) return nums;
+    return nums.replace(/(.{5})(.{5})(.{5})(.{6})(.{5})(.{6})(.{1})(.{14})/, "$1.$2 $3.$4 $5.$6 $7 $8");
+  }
+
+  async function iniciarScanner() {
+    setScanning(true);
+    try {
+      const { Html5Qrcode } = await import("html5-qrcode");
+      // Aguarda o DOM renderizar o div
+      await new Promise(r => setTimeout(r, 300));
+      const scanner = new Html5Qrcode(scannerDivId);
+      scannerRef.current = scanner;
+      await scanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 280, height: 100 } },
+        (decodedText) => {
+          const nums = decodedText.replace(/\D/g, "");
+          if (nums.length >= 44) {
+            setCodigoBarras(nums.slice(0, 47));
+            pararScanner();
+          }
+        },
+        () => {} // ignore errors
+      );
+    } catch (err) {
+      console.error("Erro ao iniciar câmera:", err);
+      setScanning(false);
+    }
+  }
+
+  async function pararScanner() {
+    setScanning(false);
+    if (scannerRef.current) {
+      try { await scannerRef.current.stop(); } catch {}
+      scannerRef.current = null;
+    }
+  }
+
+  async function copiarCodigo() {
+    try {
+      await navigator.clipboard.writeText(codigoBarras.replace(/\D/g, ""));
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 3000);
+    } catch {
+      // Fallback
+      const ta = document.createElement("textarea");
+      ta.value = codigoBarras.replace(/\D/g, "");
+      document.body.appendChild(ta); ta.select(); document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 3000);
+    }
+  }
+
+  function abrirBanco() {
+    const banco = BANCOS.find(b => b.id === bancoSelecionado);
+    if (banco) window.open(banco.link, "_blank");
+  }
+
+  async function confirmarPagamento() {
+    // Registra DAS como pago
+    const valor = dasDoMes?.valor || 75.90;
+    if (!dasDoMes) {
+      await fin.adicionarDAS({ mesReferencia: mesRef, valor, status: "pago", dataVencimento: `${mesRef}-20`, arquivoId: null });
+    } else {
+      await fin.atualizarStatusDAS(dasDoMes.id, "pago");
+    }
+    // Cria lançamento de despesa se não existir
+    if (!fin.existeLancamentoDAS(mesRef)) {
+      await fin.adicionarLancamento({ tipo: "despesa", valor, categoria: "DAS - Simples Nacional", data: `${mesRef}-20`, descricao: `DAS ref. ${mesRef}`, arquivoId: null, recorrente: false });
+    }
+    // Salva banco preferido
+    if (bancoSelecionado) fin.salvarConfig({ bancoPreferido: bancoSelecionado });
+    onConcluir();
+  }
+
+  const passos = [
+    // Passo 0: Início
+    () => (
+      <div className="px-6 pt-6 pb-10">
+        <div className="text-center mt-8">
+          <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <span className="text-3xl">📋</span>
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900">Vamos pagar seu DAS</h2>
+          <p className="text-sm text-gray-500 mt-2">Mês de referência: <span className="font-semibold">{nomeMes(mesRef)}</span></p>
+          {dasDoMes && <p className="text-lg font-bold text-emerald-600 mt-2">{fmt(dasDoMes.valor)}</p>}
+        </div>
+
+        <div className="mt-8 bg-blue-50 border border-blue-200 rounded-2xl p-4">
+          <p className="text-sm font-medium text-blue-800">Você tem o boleto do DAS?</p>
+          <p className="text-xs text-blue-600 mt-1">Pode ser impresso, em PDF, ou na tela do celular/computador.</p>
+        </div>
+
+        <div className="mt-6 space-y-3">
+          <button onClick={() => setPasso(1)}
+            className="w-full bg-emerald-600 text-white py-4 rounded-xl font-semibold text-base active:bg-emerald-700">
+            Sim, tenho o boleto
+          </button>
+          <a href="https://www8.receita.fazenda.gov.br/SimplesNacional/Aplicacoes/ATSPO/pgmei.app/Identificacao"
+            target="_blank" rel="noopener noreferrer"
+            className="w-full bg-white border border-gray-200 text-gray-700 py-4 rounded-xl font-medium text-base text-center block active:bg-gray-50">
+            Não tenho — Abrir PGMEI para gerar ↗
+          </a>
+        </div>
+      </div>
+    ),
+
+    // Passo 1: Escanear ou digitar código
+    () => (
+      <div className="px-6 pt-6 pb-10">
+        <p className="text-xs text-emerald-600 font-medium">Passo 1 de 3</p>
+        <h2 className="text-xl font-bold text-gray-900 mt-1">Código de barras do boleto</h2>
+        <p className="text-sm text-gray-500 mt-2">Escaneie com a câmera ou digite os 47 números que ficam na parte de baixo do boleto.</p>
+
+        {scanning ? (
+          <div className="mt-4">
+            <div id={scannerDivId} className="rounded-xl overflow-hidden"/>
+            <button onClick={pararScanner}
+              className="mt-3 w-full bg-red-100 text-red-600 py-3 rounded-xl text-sm font-medium active:bg-red-200">
+              Cancelar câmera
+            </button>
+          </div>
+        ) : (
+          <button onClick={iniciarScanner}
+            className="mt-4 w-full flex items-center justify-center gap-2 bg-emerald-50 border-2 border-emerald-200 text-emerald-700 py-4 rounded-xl font-medium text-base active:bg-emerald-100">
+            <Ic.Cam s={20}/> Escanear com a câmera
+          </button>
+        )}
+
+        <div className="mt-4 flex items-center gap-3">
+          <div className="flex-1 h-px bg-gray-200"/><span className="text-xs text-gray-400">ou digite</span><div className="flex-1 h-px bg-gray-200"/>
+        </div>
+
+        <input type="text" inputMode="numeric" value={formatarCodigo(codigoBarras)}
+          onChange={e => setCodigoBarras(e.target.value.replace(/\D/g, "").slice(0, 47))}
+          className="mt-4 w-full border border-gray-200 rounded-xl px-4 py-4 text-center text-base tracking-wider bg-white outline-none focus:border-emerald-400 font-mono"
+          placeholder="00000.00000 00000.000000 00000.000000 0 00000000000000"/>
+
+        {codigoBarras.replace(/\D/g, "").length === 47 && (
+          <div className="mt-3 bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex items-center gap-2">
+            <Ic.Check s={16} c="#059669"/>
+            <p className="text-sm text-emerald-700">47 dígitos — código completo!</p>
+          </div>
+        )}
+
+        <button onClick={() => setPasso(2)} disabled={codigoBarras.replace(/\D/g, "").length < 44}
+          className={`mt-6 w-full py-4 rounded-xl font-semibold text-base transition-colors ${codigoBarras.replace(/\D/g, "").length >= 44 ? "bg-emerald-600 text-white active:bg-emerald-700" : "bg-gray-200 text-gray-400"}`}>
+          Continuar
+        </button>
+      </div>
+    ),
+
+    // Passo 2: Copiar e abrir banco
+    () => (
+      <div className="px-6 pt-6 pb-10">
+        <p className="text-xs text-emerald-600 font-medium">Passo 2 de 3</p>
+        <h2 className="text-xl font-bold text-gray-900 mt-1">Copie e pague no seu banco</h2>
+
+        <div className="mt-4 bg-gray-50 border border-gray-200 rounded-xl p-4">
+          <p className="text-xs text-gray-500 mb-2">Código de barras:</p>
+          <p className="text-sm font-mono text-gray-800 break-all leading-relaxed">{formatarCodigo(codigoBarras)}</p>
+        </div>
+
+        <button onClick={copiarCodigo}
+          className={`mt-3 w-full py-4 rounded-xl font-semibold text-base transition-all ${copiado ? "bg-emerald-100 text-emerald-700 border-2 border-emerald-400" : "bg-emerald-600 text-white active:bg-emerald-700"}`}>
+          {copiado ? "✓ Código copiado!" : "Copiar código"}
+        </button>
+
+        <p className="text-sm text-gray-600 font-medium mt-6 mb-3">Qual seu banco?</p>
+        <div className="grid grid-cols-3 gap-2">
+          {BANCOS.map(b => (
+            <button key={b.id} onClick={() => setBancoSelecionado(b.id)}
+              className={`py-3 px-2 rounded-xl text-xs font-medium text-center transition-all ${bancoSelecionado === b.id ? "ring-2 ring-emerald-500 bg-emerald-50" : "bg-white border border-gray-200"}`}>
+              <div className="w-8 h-8 rounded-full mx-auto mb-1.5 flex items-center justify-center text-white text-[10px] font-bold"
+                style={{ background: b.cor, color: b.txtCor || "white" }}>
+                {b.nome.slice(0, 2)}
+              </div>
+              {b.nome}
+            </button>
+          ))}
+        </div>
+
+        {bancoSelecionado && (
+          <button onClick={() => { copiarCodigo(); setTimeout(abrirBanco, 500); }}
+            className="mt-4 w-full bg-blue-600 text-white py-4 rounded-xl font-semibold text-base active:bg-blue-700 flex items-center justify-center gap-2">
+            Copiar e abrir {BANCOS.find(b => b.id === bancoSelecionado)?.nome} ↗
+          </button>
+        )}
+
+        <button onClick={() => setPasso(3)}
+          className="mt-3 w-full bg-white border border-gray-200 text-gray-600 py-3 rounded-xl text-sm font-medium active:bg-gray-50">
+          Já paguei, continuar →
+        </button>
+      </div>
+    ),
+
+    // Passo 3: Confirmar pagamento
+    () => (
+      <div className="px-6 pt-6 pb-10">
+        <p className="text-xs text-emerald-600 font-medium">Passo 3 de 3</p>
+        <h2 className="text-xl font-bold text-gray-900 mt-1">Confirme o pagamento</h2>
+
+        <div className="mt-6 text-center">
+          <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <span className="text-4xl">💸</span>
+          </div>
+          <p className="text-sm text-gray-600">Você pagou o DAS de <span className="font-semibold">{nomeMes(mesRef)}</span>?</p>
+        </div>
+
+        <div className="mt-6 space-y-3">
+          <button onClick={confirmarPagamento}
+            className="w-full bg-emerald-600 text-white py-4 rounded-xl font-semibold text-base active:bg-emerald-700">
+            ✓ Sim, paguei!
+          </button>
+          <button onClick={onVoltar}
+            className="w-full bg-white border border-gray-200 text-gray-500 py-3 rounded-xl text-sm font-medium active:bg-gray-50">
+            Ainda não paguei
+          </button>
+        </div>
+
+        <p className="text-xs text-gray-400 text-center mt-4">O app vai registrar o DAS como pago e criar o lançamento de despesa automaticamente.</p>
+      </div>
+    ),
+  ];
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <button onClick={() => { pararScanner(); onVoltar(); }} className="flex items-center gap-1 text-gray-500 text-sm px-6 pt-4">
+        <Ic.Back s={18}/> Voltar
+      </button>
+      {passos[passo]()}
+    </div>
+  );
+}
+
+// ============================================================
+// PAYWALL PREMIUM
+// ============================================================
+function ModalPremium({ onFechar }) {
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[70] flex items-end sm:items-center justify-center" onClick={onFechar}>
+      <div className="bg-white rounded-t-3xl sm:rounded-2xl max-w-md w-full max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="bg-emerald-600 rounded-t-3xl sm:rounded-t-2xl p-6 text-white text-center">
+          <span className="text-3xl">⭐</span>
+          <h2 className="text-xl font-bold mt-2">MEI Dinheiro Verde Premium</h2>
+          <p className="text-emerald-100 text-sm mt-1">Deixe o app cuidar do seu MEI</p>
+        </div>
+        <div className="p-6">
+          <div className="space-y-3">
+            {[
+              { icone: "📦", texto: "Pacote do contador em PDF com comprovantes" },
+              { icone: "📷", texto: "Anexar fotos e documentos aos lançamentos" },
+              { icone: "📊", texto: "Relatórios avançados e evolução mensal" },
+              { icone: "📋", texto: "Assistente de pagamento do DAS" },
+              { icone: "🏷️", texto: "Categorias personalizáveis" },
+              { icone: "📤", texto: "Compartilhar resumo via WhatsApp" },
+              { icone: "💾", texto: "Backup e exportação de dados" },
+              { icone: "📈", texto: "Projeção de faturamento até dezembro" },
+            ].map((item, i) => (
+              <div key={i} className="flex items-center gap-3 text-sm text-gray-700">
+                <span className="text-lg">{item.icone}</span>
+                <span>{item.texto}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-6 bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-center">
+            <p className="text-sm text-gray-500">Por apenas</p>
+            <p className="text-3xl font-bold text-emerald-700">R$ 14,90<span className="text-base font-normal text-gray-500">/mês</span></p>
+            <p className="text-xs text-gray-400 mt-1">ou R$ 119,90/ano (R$ 9,99/mês)</p>
+          </div>
+
+          <a href="https://wa.me/5519999999999?text=Quero%20assinar%20o%20MEI%20Dinheiro%20Verde%20Premium"
+            target="_blank" rel="noopener noreferrer"
+            className="mt-4 w-full bg-emerald-600 text-white py-4 rounded-xl font-semibold text-base text-center block active:bg-emerald-700">
+            Quero ser Premium
+          </a>
+          <button onClick={onFechar}
+            className="mt-3 w-full text-sm text-gray-400 text-center py-2">
+            Agora não
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function usePremium(config) {
+  const isPremium = config.premium === true;
+  const [modalAberto, setModalAberto] = useState(false);
+
+  function verificarPremium() {
+    if (isPremium) return true;
+    setModalAberto(true);
+    return false;
+  }
+
+  return { isPremium, modalAberto, setModalAberto, verificarPremium };
+}
 function Dashboard({ fin, nav, onNav }) {
   const lancs = fin.lancamentosDoMesAno(nav.mes, nav.ano);
   const receitas = fin.receitasDoMesAno(nav.mes, nav.ano);
@@ -702,15 +1038,14 @@ function Dashboard({ fin, nav, onNav }) {
               </div>
             </div>
             <div className="flex gap-2 mt-3">
-              <button onClick={() => onNav("novo-das")}
-                className="flex-1 bg-amber-600 text-white py-2.5 rounded-xl text-xs font-medium active:bg-amber-700 transition-colors">
-                Registrar pagamento
+              <button onClick={() => onNav("wizard-das")}
+                className="flex-1 bg-emerald-600 text-white py-2.5 rounded-xl text-xs font-medium active:bg-emerald-700 transition-colors">
+                Pagar DAS
               </button>
-              <a href="https://www8.receita.fazenda.gov.br/SimplesNacional/Aplicacoes/ATSPO/pgmei.app/Identificacao"
-                target="_blank" rel="noopener noreferrer"
-                className="flex-1 bg-white border border-amber-300 text-amber-700 py-2.5 rounded-xl text-xs font-medium text-center active:bg-amber-50 transition-colors">
-                Abrir PGMEI ↗
-              </a>
+              <button onClick={() => onNav("novo-das")}
+                className="flex-1 bg-white border border-amber-300 text-amber-700 py-2.5 rounded-xl text-xs font-medium active:bg-amber-50 transition-colors">
+                Registrar manual
+              </button>
             </div>
           </div>
         )
@@ -1955,6 +2290,7 @@ export default function App() {
   const fin = useFinancas(auth.usuario?.id);
   const arq = useArquivos(auth.usuario?.id);
   const nav = useMesNavegacao();
+  const premium = usePremium(fin.config);
 
   // Tela de carregamento inicial
   if (auth.carregando) {
@@ -2008,6 +2344,7 @@ export default function App() {
       case "lancamentos": return <Lancamentos fin={fin} arq={arq} nav={nav} onNav={navegar}/>;
       case "novo": return <NovoLancamento fin={fin} arq={arq} onVoltar={() => navegar("lancamentos")}/>;
       case "editar": return <NovoLancamento fin={fin} arq={arq} onVoltar={() => navegar("lancamentos")} lancamentoEditando={lancParaEditar}/>;
+      case "wizard-das": return <WizardPagarDAS fin={fin} onVoltar={() => navegar("dashboard")} onConcluir={() => navegar("dashboard")}/>;
       case "novo-das": return <NovoLancamento fin={fin} arq={arq} onVoltar={() => navegar("dashboard")} modoInicial="das"/>;
       case "relatorios": return <Relatorios fin={fin} nav={nav} filtroInicial={relFiltro} arq={arq}/>;
       case "config": return <Configuracoes fin={fin} auth={auth}/>;
@@ -2020,6 +2357,7 @@ export default function App() {
     <div className="max-w-md mx-auto min-h-screen bg-gray-50">
       {renderPagina()}
       {!semNav && <BottomNav pagina={pagina} onNav={navegar}/>}
+      {premium.modalAberto && <ModalPremium onFechar={() => premium.setModalAberto(false)}/>}
     </div>
   );
 }
