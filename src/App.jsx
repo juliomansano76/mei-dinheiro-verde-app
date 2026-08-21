@@ -180,7 +180,7 @@ function useFinancas(userId) {
       banco_preferido: atualizada.bancoPreferido || "", premium: atualizada.premium || false,
       premium_ate: atualizada.premiumAte || null, onboarding_completo: atualizada.onboardingCompleto || false,
       updated_at: new Date().toISOString(),
-    }, { onConflict: "user_id" });
+    }, { onConflict: "user_id" }).select();
     if (error) console.error("Erro ao salvar config:", error);
   }, [userId, config]);
 
