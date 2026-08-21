@@ -75,7 +75,7 @@ function useFinancas(userId) {
   const [config, setConfig] = useState({
     nome: "", cnpj: "", limiteAnual: 81000, diaDAS: 20,
     categoriasReceita: CATEGORIAS_RECEITA_PADRAO,
-    categoriasDespesa: CATEGORIAS_DESPESA_PADRAO, bancoPreferido: "", premium: false, premiumAte: null, onboardingCompleto: false,
+    categoriasDespesa: CATEGORIAS_DESPESA_PADRAO, bancoPreferido: "", premium: false, premiumAte: null, onboardingCompleto: false, termosAceitosEm: null,
   });
   const [carregando, setCarregando] = useState(true);
 
@@ -104,7 +104,7 @@ function useFinancas(userId) {
           nome: cfgRes.data.nome || "", cnpj: cfgRes.data.cnpj || "",
           limiteAnual: Number(cfgRes.data.limite_anual) || 81000, diaDAS: cfgRes.data.dia_das || 20,
           categoriasReceita: cfgRes.data.categorias_receita || CATEGORIAS_RECEITA_PADRAO,
-          categoriasDespesa: cfgRes.data.categorias_despesa || CATEGORIAS_DESPESA_PADRAO, bancoPreferido: cfgRes.data.banco_preferido || "", premium: cfgRes.data.premium || false, premiumAte: cfgRes.data.premium_ate || null, onboardingCompleto: cfgRes.data.onboarding_completo || false,
+          categoriasDespesa: cfgRes.data.categorias_despesa || CATEGORIAS_DESPESA_PADRAO, bancoPreferido: cfgRes.data.banco_preferido || "", premium: cfgRes.data.premium || false, premiumAte: cfgRes.data.premium_ate || null, onboardingCompleto: cfgRes.data.onboarding_completo || false, termosAceitosEm: cfgRes.data.termos_aceitos_em || null,
         });
       }
       setCarregando(false);
@@ -178,7 +178,7 @@ function useFinancas(userId) {
       limite_anual: atualizada.limiteAnual, dia_das: atualizada.diaDAS,
       categorias_receita: atualizada.categoriasReceita, categorias_despesa: atualizada.categoriasDespesa,
       banco_preferido: atualizada.bancoPreferido || "", premium: atualizada.premium || false,
-      premium_ate: atualizada.premiumAte || null, onboarding_completo: atualizada.onboardingCompleto || false,
+      premium_ate: atualizada.premiumAte || null, onboarding_completo: atualizada.onboardingCompleto || false, termos_aceitos_em: atualizada.termosAceitosEm || null,
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id" }).select();
     if (error) console.error("Erro ao salvar config:", error);
@@ -2451,8 +2451,13 @@ function TelaLogin({ auth }) {
   const [erro, setErro] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [sucesso, setSucesso] = useState(false);
+  const [aceitouTermos, setAceitouTermos] = useState(false);
 
   async function handleSubmit() {
+    if (modo === "cadastro" && !aceitouTermos) {
+      setErro("Você precisa aceitar a Política de Privacidade e os Termos de Uso para criar sua conta.");
+      return;
+    }
     setErro(""); setEnviando(true);
     const error = modo === "login" ? await auth.login(email, senha) : await auth.cadastrar(email, senha);
     setEnviando(false);
@@ -2509,7 +2514,19 @@ function TelaLogin({ auth }) {
 
         {erro && <p className="text-sm text-red-500 text-center bg-red-50 rounded-xl p-3">{erro}</p>}
 
-        <button onClick={handleSubmit} disabled={enviando || !email || !senha}
+        {modo === "cadastro" && (
+          <label className="flex items-start gap-3 cursor-pointer">
+            <div className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${aceitouTermos ? "bg-emerald-600 border-emerald-600" : "border-gray-300 bg-white"}`}
+              onClick={() => setAceitouTermos(!aceitouTermos)}>
+              {aceitouTermos && <Ic.Check s={12} c="white"/>}
+            </div>
+            <span className="text-xs text-gray-600 leading-relaxed">
+              Li e aceito a <a href="/privacidade.html" target="_blank" rel="noopener noreferrer" className="text-emerald-600 underline">Política de Privacidade</a> e os <a href="/termos.html" target="_blank" rel="noopener noreferrer" className="text-emerald-600 underline">Termos de Uso</a>
+            </span>
+          </label>
+        )}
+
+        <button onClick={handleSubmit} disabled={enviando || !email || !senha || (modo === "cadastro" && !aceitouTermos)}
           className={`w-full py-4 rounded-xl font-semibold text-base transition-colors ${enviando || !email || !senha ? "bg-gray-200 text-gray-400" : "bg-emerald-600 text-white active:bg-emerald-700"}`}>
           {enviando ? "Aguarde..." : modo === "login" ? "Entrar" : "Criar conta"}
         </button>
@@ -2571,7 +2588,7 @@ export default function App() {
   }
 
   function concluirOnboarding(nome, cnpj) {
-    const dados = { onboardingCompleto: true };
+    const dados = { onboardingCompleto: true, termosAceitosEm: new Date().toISOString() };
     if (nome.trim()) dados.nome = nome.trim();
     if (cnpj.trim()) dados.cnpj = mascaraCNPJ(cnpj);
     fin.salvarConfig(dados);
@@ -2579,6 +2596,44 @@ export default function App() {
 
   if (!fin.config.onboardingCompleto) {
     return <div className="max-w-md mx-auto min-h-screen"><Onboarding onConcluir={concluirOnboarding}/></div>;
+  }
+
+  // Tela de aceite para usuários existentes que ainda não aceitaram
+  if (!fin.config.termosAceitosEm) {
+    return (
+      <div className="max-w-md mx-auto min-h-screen bg-gray-50 flex flex-col justify-center px-8">
+        <div className="text-center mb-6">
+          <div className="w-16 h-16 bg-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <span className="text-3xl font-bold text-white">$</span>
+          </div>
+          <h1 className="text-2xl font-bold text-gray-900">Atualizamos nossas políticas</h1>
+          <p className="text-sm text-gray-500 mt-2">Para continuar usando o MEI Dinheiro Verde, leia e aceite nossos termos atualizados.</p>
+        </div>
+
+        <div className="space-y-3 mb-6">
+          <a href="/privacidade.html" target="_blank" rel="noopener noreferrer"
+            className="w-full flex items-center justify-between bg-white border border-gray-200 rounded-xl p-4 active:bg-gray-50">
+            <span className="text-sm text-gray-700">Política de Privacidade</span>
+            <Ic.Fwd s={14} c="#059669"/>
+          </a>
+          <a href="/termos.html" target="_blank" rel="noopener noreferrer"
+            className="w-full flex items-center justify-between bg-white border border-gray-200 rounded-xl p-4 active:bg-gray-50">
+            <span className="text-sm text-gray-700">Termos de Uso</span>
+            <Ic.Fwd s={14} c="#059669"/>
+          </a>
+        </div>
+
+        <button onClick={() => fin.salvarConfig({ termosAceitosEm: new Date().toISOString() })}
+          className="w-full bg-emerald-600 text-white py-4 rounded-xl font-semibold text-base active:bg-emerald-700">
+          Li e aceito os termos
+        </button>
+
+        <button onClick={() => auth.logout()}
+          className="mt-3 w-full text-sm text-gray-400 text-center py-2">
+          Sair
+        </button>
+      </div>
+    );
   }
 
   function navegar(p, dados) {
