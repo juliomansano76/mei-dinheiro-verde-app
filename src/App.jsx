@@ -2458,6 +2458,12 @@ function TelaLogin({ auth }) {
       setErro("Você precisa aceitar a Política de Privacidade e os Termos de Uso para criar sua conta.");
       return;
     }
+    if (modo === "cadastro") {
+      if (senha.length < 8) { setErro("A senha precisa ter pelo menos 8 caracteres."); return; }
+      if (!/[A-Z]/.test(senha)) { setErro("A senha precisa ter pelo menos uma letra maiúscula."); return; }
+      if (!/[a-z]/.test(senha)) { setErro("A senha precisa ter pelo menos uma letra minúscula."); return; }
+      if (!/[0-9]/.test(senha)) { setErro("A senha precisa ter pelo menos um número."); return; }
+    }
     setErro(""); setEnviando(true);
     const error = modo === "login" ? await auth.login(email, senha) : await auth.cadastrar(email, senha);
     setEnviando(false);
@@ -2507,7 +2513,7 @@ function TelaLogin({ auth }) {
           <label className="text-xs text-gray-500 block mb-1">Senha</label>
           <input type="password" value={senha} onChange={e => setSenha(e.target.value)}
             className="w-full border border-gray-200 rounded-xl px-4 py-3.5 text-base bg-white outline-none focus:border-emerald-400"
-            placeholder={modo === "cadastro" ? "Mínimo 6 caracteres" : "Sua senha"}
+            placeholder={modo === "cadastro" ? "Mín. 8 caracteres, maiúscula, número" : "Sua senha"}
             autoComplete={modo === "login" ? "current-password" : "new-password"}
             onKeyDown={e => { if (e.key === "Enter") handleSubmit(); }}/>
         </div>
