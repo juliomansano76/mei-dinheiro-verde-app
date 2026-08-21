@@ -2312,6 +2312,23 @@ function Configuracoes({ fin, auth, premium }) {
         )}
       </div>
 
+      {/* Legal */}
+      <div className="mt-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-3">Legal</h2>
+        <div className="space-y-2">
+          <a href="/privacidade.html" target="_blank" rel="noopener noreferrer"
+            className="w-full flex items-center justify-between bg-white border border-gray-100 rounded-xl p-4 shadow-sm active:bg-gray-50">
+            <span className="text-sm text-gray-700">Política de Privacidade</span>
+            <Ic.Fwd s={14} c="#9ca3af"/>
+          </a>
+          <a href="/termos.html" target="_blank" rel="noopener noreferrer"
+            className="w-full flex items-center justify-between bg-white border border-gray-100 rounded-xl p-4 shadow-sm active:bg-gray-50">
+            <span className="text-sm text-gray-700">Termos de Uso</span>
+            <Ic.Fwd s={14} c="#9ca3af"/>
+          </a>
+        </div>
+      </div>
+
       {/* Conta */}
       <div className="mt-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-3">Conta</h2>
@@ -2502,6 +2519,12 @@ function TelaLogin({ auth }) {
         className="mt-6 text-sm text-center text-emerald-600 font-medium">
         {modo === "login" ? "Não tem conta? Cadastre-se" : "Já tem conta? Faça login"}
       </button>
+
+      <div className="mt-6 flex items-center justify-center gap-3 text-xs text-gray-400">
+        <a href="/privacidade.html" target="_blank" rel="noopener noreferrer" className="underline">Política de Privacidade</a>
+        <span>•</span>
+        <a href="/termos.html" target="_blank" rel="noopener noreferrer" className="underline">Termos de Uso</a>
+      </div>
     </div>
   );
 }
