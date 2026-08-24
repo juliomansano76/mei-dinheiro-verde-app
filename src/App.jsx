@@ -382,6 +382,204 @@ function NavMes({ nav }) {
 }
 
 // ============================================================
+// HOOK: IA (Gemini)
+// ============================================================
+function useIA() {
+  const [carregando, setCarregando] = useState(false);
+
+  async function chamarIA(tipo, mensagem, contexto, imagem) {
+    setCarregando(true);
+    try {
+      const res = await fetch("/api/gemini", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tipo, mensagem, contexto, imagem }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      return data.resposta;
+    } catch (err) {
+      console.error("Erro IA:", err);
+      return null;
+    } finally {
+      setCarregando(false);
+    }
+  }
+
+  return { chamarIA, carregando };
+}
+
+// ============================================================
+// ASSISTENTE MEI (Chatbot)
+// ============================================================
+function AssistenteMEIChat({ fin, onFechar }) {
+  const [mensagens, setMensagens] = useState([
+    { de: "bot", texto: "Olá! Sou o assistente do MEI Dinheiro Verde. Pode me perguntar qualquer dúvida sobre MEI, DAS, limite de faturamento, declaração anual... 😊" }
+  ]);
+  const [input, setInput] = useState("");
+  const ia = useIA();
+  const listRef = useRef(null);
+
+  const contexto = `Nome: ${fin.config.nome || "Não informado"}. Faturamento anual: ${fmt(fin.faturamentoAnual)}. Limite: ${fmt(fin.config.limiteAnual)}. Percentual usado: ${Math.round(fin.percentualFaturamento)}%. Custos fixos: ${fmt(fin.custoFixoMensal)}.`;
+
+  useEffect(() => {
+    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+  }, [mensagens]);
+
+  async function enviar() {
+    const texto = input.trim();
+    if (!texto || ia.carregando) return;
+    setInput("");
+    setMensagens(prev => [...prev, { de: "user", texto }]);
+
+    const resposta = await ia.chamarIA("chat", texto, contexto);
+    setMensagens(prev => [...prev, { de: "bot", texto: resposta || "Desculpe, não consegui processar. Tente novamente." }]);
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-gray-50 flex flex-col max-w-md mx-auto">
+      {/* Header */}
+      <div className="bg-emerald-600 text-white px-5 py-4 flex items-center justify-between flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <span className="text-xl">🤖</span>
+          <div>
+            <p className="font-semibold text-sm">Assistente MEI</p>
+            <p className="text-emerald-200 text-xs">Tire suas dúvidas sobre MEI</p>
+          </div>
+        </div>
+        <button onClick={onFechar} className="text-emerald-200 active:text-white"><Ic.X s={22}/></button>
+      </div>
+
+      {/* Mensagens */}
+      <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+        {mensagens.map((msg, i) => (
+          <div key={i} className={`flex ${msg.de === "user" ? "justify-end" : "justify-start"}`}>
+            <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+              msg.de === "user" ? "bg-emerald-600 text-white rounded-br-md" : "bg-white border border-gray-200 text-gray-800 rounded-bl-md shadow-sm"
+            }`}>
+              {msg.texto.split("\n").map((linha, j) => <p key={j} className={j > 0 ? "mt-1.5" : ""}>{linha}</p>)}
+            </div>
+          </div>
+        ))}
+        {ia.carregando && (
+          <div className="flex justify-start">
+            <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm">
+              <div className="flex gap-1.5">
+                <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{animationDelay:"0ms"}}/>
+                <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{animationDelay:"150ms"}}/>
+                <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{animationDelay:"300ms"}}/>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Input */}
+      <div className="flex-shrink-0 border-t border-gray-200 bg-white px-4 py-3 flex gap-2">
+        <input type="text" value={input} onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") enviar(); }}
+          placeholder="Digite sua dúvida sobre MEI..."
+          className="flex-1 border border-gray-200 rounded-xl px-4 py-3 text-sm bg-gray-50 outline-none focus:border-emerald-400"/>
+        <button onClick={enviar} disabled={!input.trim() || ia.carregando}
+          className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors ${input.trim() && !ia.carregando ? "bg-emerald-600 active:bg-emerald-700" : "bg-gray-200"}`}>
+          <Ic.Send s={18} c={input.trim() && !ia.carregando ? "white" : "#9ca3af"}/>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// INPUT POR TEXTO NATURAL (IA)
+// ============================================================
+function InputTextoNatural({ onLancamentoCriado }) {
+  const [texto, setTexto] = useState("");
+  const [resultado, setResultado] = useState(null);
+  const ia = useIA();
+
+  async function processar() {
+    if (!texto.trim() || ia.carregando) return;
+    const resposta = await ia.chamarIA("lancamento", texto.trim());
+    if (resposta) {
+      try {
+        const limpo = resposta.replace(/```json|```/g, "").trim();
+        const dados = JSON.parse(limpo);
+        setResultado(dados);
+      } catch { setResultado(null); }
+    }
+  }
+
+  function confirmar() {
+    if (resultado) {
+      onLancamentoCriado(resultado);
+      setTexto("");
+      setResultado(null);
+    }
+  }
+
+  return (
+    <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 mb-4">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-lg">🤖</span>
+        <p className="text-sm font-medium text-emerald-800">Lançamento rápido por texto</p>
+      </div>
+      <p className="text-xs text-emerald-600 mb-3">Descreva o lançamento em linguagem natural:</p>
+
+      <div className="flex gap-2">
+        <input type="text" value={texto} onChange={e => setTexto(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") processar(); }}
+          placeholder="Ex: recebi 3 mil de consultoria hoje"
+          className="flex-1 border border-emerald-200 rounded-xl px-3 py-2.5 text-sm bg-white outline-none focus:border-emerald-400"/>
+        <button onClick={processar} disabled={!texto.trim() || ia.carregando}
+          className={`px-4 rounded-xl text-sm font-medium transition-colors ${!texto.trim() || ia.carregando ? "bg-gray-200 text-gray-400" : "bg-emerald-600 text-white active:bg-emerald-700"}`}>
+          {ia.carregando ? "..." : "Criar"}
+        </button>
+      </div>
+
+      {resultado && (
+        <div className="mt-3 bg-white border border-emerald-200 rounded-xl p-3">
+          <p className="text-xs text-gray-500 mb-2">A IA entendeu:</p>
+          <div className="space-y-1 text-sm">
+            <div className="flex justify-between">
+              <span className="text-gray-500">Tipo</span>
+              <span className={`font-medium ${resultado.tipo === "receita" ? "text-emerald-600" : "text-red-500"}`}>
+                {resultado.tipo === "receita" ? "↑ Receita" : "↓ Despesa"}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">Valor</span>
+              <span className="font-medium text-gray-800">{fmt(resultado.valor)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">Categoria</span>
+              <span className="text-gray-800">{resultado.categoria}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-500">Data</span>
+              <span className="text-gray-800">{resultado.data}</span>
+            </div>
+            {resultado.descricao && <div className="flex justify-between">
+              <span className="text-gray-500">Descrição</span>
+              <span className="text-gray-800">{resultado.descricao}</span>
+            </div>}
+          </div>
+          <div className="flex gap-2 mt-3">
+            <button onClick={confirmar}
+              className="flex-1 bg-emerald-600 text-white py-2.5 rounded-lg text-sm font-medium active:bg-emerald-700">
+              ✓ Confirmar
+            </button>
+            <button onClick={() => setResultado(null)}
+              className="flex-1 bg-gray-100 text-gray-600 py-2.5 rounded-lg text-sm font-medium">
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // BOTTOM NAV
 // ============================================================
 function BottomNav({ pagina, onNav }) {
@@ -1245,6 +1443,14 @@ function Dashboard({ fin, nav, onNav, premium }) {
         <div className="mt-10 text-center"><p className="text-gray-400 text-sm">Nenhum lançamento neste mês</p>
           {nav.isAtual && <button onClick={() => onNav("novo")} className="mt-3 text-emerald-600 text-sm font-medium">+ Adicionar primeiro lançamento</button>}</div>
       )}
+
+      {/* Botão flutuante do Assistente IA */}
+      {premium.isPremium && (
+        <button onClick={() => onNav("assistente")}
+          className="fixed bottom-24 right-5 w-14 h-14 bg-emerald-600 text-white rounded-full shadow-lg flex items-center justify-center active:bg-emerald-700 active:scale-95 transition-all z-40">
+          <span className="text-xl">🤖</span>
+        </button>
+      )}
     </div>
   );
 }
@@ -1408,6 +1614,16 @@ function NovoLancamento({ fin, arq, onVoltar, modoInicial, lancamentoEditando, p
             <span className="block text-lg mb-0.5">{m.emoji}</span>{m.label}</button>
         ))}
       </div>}
+
+      {/* Input por texto natural (IA) — só para Premium */}
+      {premium?.isPremium && !editando && modo === "lancamento" && (
+        <div className="mt-4">
+          <InputTextoNatural onLancamentoCriado={async (dados) => {
+            await fin.adicionarLancamento({ ...dados, arquivoId: null, recorrente: false });
+            onVoltar();
+          }}/>
+        </div>
+      )}
 
       {modo === "das" && !editando ? (
         <div className="mt-6 space-y-4">
@@ -2660,11 +2876,12 @@ export default function App() {
       case "novo-das": return <NovoLancamento fin={fin} arq={arq} onVoltar={() => navegar("dashboard")} modoInicial="das" premium={premium}/>;
       case "relatorios": return <Relatorios fin={fin} nav={nav} filtroInicial={relFiltro} arq={arq} premium={premium}/>;
       case "config": return <Configuracoes fin={fin} auth={auth} premium={premium}/>;
-      default: return <Dashboard fin={fin} nav={nav} onNav={navegar}/>;
+      case "assistente": return <AssistenteMEIChat fin={fin} onFechar={() => navegar("dashboard")}/>;
+      default: return <Dashboard fin={fin} nav={nav} onNav={navegar} premium={premium}/>;
     }
   }
 
-  const semNav = pagina === "novo" || pagina === "novo-das" || pagina === "editar";
+  const semNav = pagina === "novo" || pagina === "novo-das" || pagina === "editar" || pagina === "assistente";
   return (
     <div className="max-w-md mx-auto min-h-screen bg-gray-50">
       {renderPagina()}
