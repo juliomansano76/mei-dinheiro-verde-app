@@ -28,28 +28,19 @@ REGRAS:
 6. Linguagem simples e amigavel`;
 
     } else if (tipo === "lancamento") {
-      systemPrompt = `Extraia dados de um lancamento financeiro da frase abaixo.
+      systemPrompt = `Extraia dados financeiros da frase. Responda SOMENTE com JSON puro. NADA de texto extra.
 
-RESPONDA APENAS COM JSON. Nada de texto, nada de explicacao, nada de markdown, nada de crases.
-
-Formato exato do JSON:
 {"tipo":"receita","valor":1500.00,"categoria":"Servicos Prestados","data":"2026-08-24","descricao":"consultoria"}
 
-Categorias validas de receita: Vendas, Servicos Prestados, Comissoes, Outros
-Categorias validas de despesa: Material, Transporte, Alimentacao, Internet / Telefone, Aluguel, Marketing, Contador, DAS - Simples Nacional, Outros
+Categorias receita: Vendas, Servicos Prestados, Comissoes, Outros
+Categorias despesa: Material, Transporte, Alimentacao, Internet / Telefone, Aluguel, Marketing, Contador, DAS - Simples Nacional, Outros
 
-Data de hoje: ${new Date().toISOString().split("T")[0]}
+Hoje: ${new Date().toISOString().split("T")[0]}
 
-Regras:
-- recebeu/vendeu/faturou = tipo "receita"
-- gastou/pagou/comprou = tipo "despesa"
-- Se nao mencionar data, use a data de hoje
-- "mil" ou "k" significa multiplicar por 1000
-- Valor sempre como numero decimal com duas casas (80.00, nao 80)
-- descricao em 2-3 palavras resumindo`;
+recebeu/vendeu/faturou = receita. gastou/pagou/comprou = despesa. mil/k = x1000. Valor decimal (80.00).`;
 
     } else if (tipo === "ocr") {
-      systemPrompt = `Analise a imagem e extraia dados. Responda SOMENTE com JSON:
+      systemPrompt = `Extraia dados da imagem. Responda SOMENTE com JSON:
 {"valor":0.00,"data":"2026-01-01","descricao":"descricao","tipo_documento":"NF"}`;
     } else {
       return res.status(400).json({ error: "Tipo invalido" });
@@ -79,26 +70,39 @@ Regras:
     if (!geminiRes.ok) {
       const errText = await geminiRes.text();
       console.error("Gemini HTTP error:", geminiRes.status, errText);
-      return res.status(500).json({ error: "Erro na API do Gemini" });
+      return res.status(500).json({ error: "Erro na API" });
     }
 
     const data = await geminiRes.json();
     let resposta = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
-    // Log para debug
-    console.log("Gemini tipo:", tipo, "resposta:", resposta);
-
-    // Para lancamento: tenta limpar a resposta e garantir JSON valido
+    // Para lancamento: limpa e valida o JSON no servidor
+    // Assim o frontend recebe JSON perfeito sem precisar parsear
     if (tipo === "lancamento" && resposta) {
-      // Remove markdown code blocks se existirem
-      resposta = resposta.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
-      // Se ainda nao comeca com {, tenta extrair
-      if (!resposta.startsWith("{")) {
-        const match = resposta.match(/\{[^}]+\}/);
-        if (match) resposta = match[0];
+      try {
+        // Remove tudo que nao eh JSON
+        let limpo = resposta.replace(/```json/gi, "").replace(/```/g, "").trim();
+        // Extrai o objeto JSON
+        const match = limpo.match(/\{[\s\S]*\}/);
+        if (match) {
+          // Parse e re-stringify para garantir JSON valido e limpo
+          const obj = JSON.parse(match[0]);
+          resposta = JSON.stringify(obj);
+          console.log("Lancamento OK:", resposta);
+        } else {
+          console.error("Sem JSON na resposta:", limpo);
+        }
+      } catch (e) {
+        console.error("Erro ao limpar JSON:", e.message, "resposta:", resposta);
       }
     }
 
+    if (tipo === "chat") {
+      // Remove markdown residual
+      resposta = resposta.replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1");
+    }
+
+    console.log("Resposta final tipo:", tipo, "tamanho:", resposta.length);
     return res.status(200).json({ resposta });
 
   } catch (error) {
