@@ -420,11 +420,48 @@ function AssistenteMEIChat({ fin, onFechar }) {
   const ia = useIA();
   const listRef = useRef(null);
 
-  const contexto = `Nome: ${fin.config.nome || "Não informado"}. Faturamento anual: ${fmt(fin.faturamentoAnual)}. Limite: ${fmt(fin.config.limiteAnual)}. Percentual usado: ${Math.round(fin.percentualFaturamento)}%. Custos fixos: ${fmt(fin.custoFixoMensal)}.`;
+  const hoje = new Date();
+  const mesAtual = hoje.getMonth();
+  const anoAtual = hoje.getFullYear();
+  const lancsMes = fin.lancamentosDoMesAno(mesAtual, anoAtual);
+  const receitasMes = fin.receitasDoMesAno(mesAtual, anoAtual);
+  const despesasMes = fin.despesasDoMesAno(mesAtual, anoAtual);
+  const saldoMes = receitasMes - despesasMes;
+
+  // Detalhamento por categoria
+  const recPorCat = {};
+  const despPorCat = {};
+  lancsMes.forEach(l => {
+    if (l.tipo === "receita") recPorCat[l.categoria] = (recPorCat[l.categoria] || 0) + l.valor;
+    else despPorCat[l.categoria] = (despPorCat[l.categoria] || 0) + l.valor;
+  });
+  const detalheRec = Object.entries(recPorCat).map(([c, v]) => `${c}: ${fmt(v)}`).join(", ") || "Nenhuma";
+  const detalheDesp = Object.entries(despPorCat).map(([c, v]) => `${c}: ${fmt(v)}`).join(", ") || "Nenhuma";
+
+  // Últimos lançamentos
+  const ultimos = [...lancsMes].sort((a, b) => new Date(b.data) - new Date(a.data)).slice(0, 5)
+    .map(l => `${l.tipo === "receita" ? "+" : "-"}${fmt(l.valor)} ${l.categoria}${l.descricao ? ` (${l.descricao})` : ""} em ${l.data}`).join("; ");
+
+  const contexto = `Nome: ${fin.config.nome || "Não informado"}.
+Mês atual: ${MESES_NOME[mesAtual]}/${anoAtual}.
+Receitas deste mês: ${fmt(receitasMes)}. Detalhamento: ${detalheRec}.
+Despesas deste mês: ${fmt(despesasMes)}. Detalhamento: ${detalheDesp}.
+Saldo deste mês: ${fmt(saldoMes)}.
+Faturamento anual acumulado: ${fmt(fin.faturamentoAnual)}.
+Limite anual MEI: ${fmt(fin.config.limiteAnual)}.
+Percentual do limite usado: ${Math.round(fin.percentualFaturamento)}%.
+Custos fixos mensais: ${fmt(fin.custoFixoMensal)}.
+Total de lançamentos: ${fin.lancamentos.length}.
+Últimos lançamentos: ${ultimos || "Nenhum"}.`;
 
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
   }, [mensagens]);
+
+  // Remove markdown simples da resposta
+  function limparMarkdown(texto) {
+    return texto.replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1");
+  }
 
   async function enviar() {
     const texto = input.trim();
@@ -433,7 +470,7 @@ function AssistenteMEIChat({ fin, onFechar }) {
     setMensagens(prev => [...prev, { de: "user", texto }]);
 
     const resposta = await ia.chamarIA("chat", texto, contexto);
-    setMensagens(prev => [...prev, { de: "bot", texto: resposta || "Desculpe, não consegui processar. Tente novamente." }]);
+    setMensagens(prev => [...prev, { de: "bot", texto: resposta ? limparMarkdown(resposta) : "Desculpe, não consegui processar. Tente novamente." }]);
   }
 
   return (
@@ -495,17 +532,34 @@ function AssistenteMEIChat({ fin, onFechar }) {
 function InputTextoNatural({ onLancamentoCriado }) {
   const [texto, setTexto] = useState("");
   const [resultado, setResultado] = useState(null);
+  const [erro, setErro] = useState("");
   const ia = useIA();
 
   async function processar() {
     if (!texto.trim() || ia.carregando) return;
+    setErro("");
+    setResultado(null);
     const resposta = await ia.chamarIA("lancamento", texto.trim());
-    if (resposta) {
-      try {
-        const limpo = resposta.replace(/```json|```/g, "").trim();
-        const dados = JSON.parse(limpo);
-        setResultado(dados);
-      } catch { setResultado(null); }
+    if (!resposta) {
+      setErro("Não consegui processar. Verifique sua conexão.");
+      return;
+    }
+    try {
+      const limpo = resposta.replace(/```json|```/g, "").replace(/[\r\n]/g, "").trim();
+      const match = limpo.match(/\{[\s\S]*\}/);
+      if (match) {
+        const dados = JSON.parse(match[0]);
+        if (dados.tipo && dados.valor) {
+          setResultado(dados);
+        } else {
+          setErro("Não entendi. Tente algo como: 'recebi 3 mil de consultoria'");
+        }
+      } else {
+        setErro("Não entendi. Tente ser mais específico.");
+      }
+    } catch (e) {
+      console.error("Erro ao parsear:", e, resposta);
+      setErro("Erro ao interpretar. Tente reformular.");
     }
   }
 
@@ -535,6 +589,8 @@ function InputTextoNatural({ onLancamentoCriado }) {
           {ia.carregando ? "..." : "Criar"}
         </button>
       </div>
+
+      {erro && <p className="mt-2 text-xs text-red-500 bg-red-50 rounded-lg p-2 text-center">{erro}</p>}
 
       {resultado && (
         <div className="mt-3 bg-white border border-emerald-200 rounded-xl p-3">
