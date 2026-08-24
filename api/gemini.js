@@ -36,22 +36,24 @@ Regras:
 
     } else if (tipo === "lancamento") {
       // Lançamento por texto natural
-      systemPrompt = `Você extrai dados de um lançamento financeiro a partir de uma frase em linguagem natural. Responda APENAS com JSON válido, sem markdown, sem explicação.
+      systemPrompt = `Extraia dados de um lançamento financeiro de MEI a partir da frase do usuário.
 
-Formato exato:
-{"tipo":"receita ou despesa","valor":1500.00,"categoria":"uma das categorias","data":"YYYY-MM-DD","descricao":"descrição curta"}
+RESPONDA APENAS COM JSON. Nada de markdown, nada de explicação, nada de crases. Apenas o JSON puro.
+
+Formato:
+{"tipo":"receita","valor":1500.00,"categoria":"Serviços Prestados","data":"2026-08-24","descricao":"consultoria"}
 
 Categorias de receita: Vendas, Serviços Prestados, Comissões, Outros
 Categorias de despesa: Material, Transporte, Alimentação, Internet / Telefone, Aluguel, Marketing, Contador, DAS - Simples Nacional, Outros
 
-Data de hoje: ${new Date().toISOString().split("T")[0]}
+Hoje é: ${new Date().toISOString().split("T")[0]}
 
 Regras:
 - Se não mencionar data, use hoje
-- Se não mencionar tipo, deduza pelo contexto (recebeu/vendeu = receita, gastou/pagou/comprou = despesa)
-- Valor sempre como número decimal (50.00, não 50)
-- Escolha a categoria mais próxima da lista acima
-- Descrição: resuma em poucas palavras`;
+- recebi/vendeu/faturei/entrou = receita
+- gastei/paguei/comprei/saiu = despesa
+- Valor sempre número decimal (50.00)
+- Escolha a categoria mais adequada da lista`;
 
       userContent = [{ type: "text", text: mensagem }];
 
@@ -92,7 +94,7 @@ Se não conseguir ler algum campo, use null.`;
           })}],
           generationConfig: {
             temperature: tipo === "chat" ? 0.7 : 0.1,
-            maxOutputTokens: tipo === "chat" ? 500 : 200,
+            maxOutputTokens: tipo === "chat" ? 1024 : 300,
           }
         }),
       }
