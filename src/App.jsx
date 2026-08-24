@@ -420,11 +420,32 @@ function AssistenteMEIChat({ fin, onFechar }) {
   const ia = useIA();
   const listRef = useRef(null);
 
-  const contexto = `Nome: ${fin.config.nome || "Não informado"}. Faturamento anual: ${fmt(fin.faturamentoAnual)}. Limite: ${fmt(fin.config.limiteAnual)}. Percentual usado: ${Math.round(fin.percentualFaturamento)}%. Custos fixos: ${fmt(fin.custoFixoMensal)}.`;
+  const hoje = new Date();
+  const mesAtual = hoje.getMonth();
+  const anoAtual = hoje.getFullYear();
+  const receitasMes = fin.receitasDoMesAno(mesAtual, anoAtual);
+  const despesasMes = fin.despesasDoMesAno(mesAtual, anoAtual);
+  const saldoMes = receitasMes - despesasMes;
+
+  const contexto = `Nome: ${fin.config.nome || "Não informado"}.
+Mês atual: ${MESES_NOME[mesAtual]}/${anoAtual}.
+Receitas deste mês: ${fmt(receitasMes)}.
+Despesas deste mês: ${fmt(despesasMes)}.
+Saldo deste mês: ${fmt(saldoMes)}.
+Faturamento anual acumulado: ${fmt(fin.faturamentoAnual)}.
+Limite anual MEI: ${fmt(fin.config.limiteAnual)}.
+Percentual do limite usado: ${Math.round(fin.percentualFaturamento)}%.
+Custos fixos mensais: ${fmt(fin.custoFixoMensal)}.
+Total de lançamentos: ${fin.lancamentos.length}.`;
 
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
   }, [mensagens]);
+
+  // Remove markdown simples da resposta
+  function limparMarkdown(texto) {
+    return texto.replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1");
+  }
 
   async function enviar() {
     const texto = input.trim();
@@ -433,7 +454,7 @@ function AssistenteMEIChat({ fin, onFechar }) {
     setMensagens(prev => [...prev, { de: "user", texto }]);
 
     const resposta = await ia.chamarIA("chat", texto, contexto);
-    setMensagens(prev => [...prev, { de: "bot", texto: resposta || "Desculpe, não consegui processar. Tente novamente." }]);
+    setMensagens(prev => [...prev, { de: "bot", texto: resposta ? limparMarkdown(resposta) : "Desculpe, não consegui processar. Tente novamente." }]);
   }
 
   return (
@@ -502,10 +523,23 @@ function InputTextoNatural({ onLancamentoCriado }) {
     const resposta = await ia.chamarIA("lancamento", texto.trim());
     if (resposta) {
       try {
-        const limpo = resposta.replace(/```json|```/g, "").trim();
-        const dados = JSON.parse(limpo);
-        setResultado(dados);
-      } catch { setResultado(null); }
+        const limpo = resposta.replace(/```json|```/g, "").replace(/[\r\n]/g, "").trim();
+        // Tenta encontrar JSON na resposta mesmo se tiver texto antes/depois
+        const match = limpo.match(/\{[\s\S]*\}/);
+        if (match) {
+          const dados = JSON.parse(match[0]);
+          if (dados.tipo && dados.valor) {
+            setResultado(dados);
+          } else {
+            setResultado(null);
+          }
+        } else {
+          setResultado(null);
+        }
+      } catch (e) {
+        console.error("Erro ao parsear resposta IA:", e, resposta);
+        setResultado(null);
+      }
     }
   }
 
