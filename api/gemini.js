@@ -9,7 +9,7 @@ export default async function handler(req, res) {
   if (!apiKey) return res.status(500).json({ error: "API key not configured" });
 
   const CATEGORIAS_RECEITA = ["Vendas", "Serviços Prestados", "Comissões", "Outros"];
-  const CATEGORIAS_DESPESA = ["Material", "Transporte", "Alimentação", "Internet / Telefone", "Aluguel", "Marketing", "Contador", "DAS - Simples Nacional", "Outros"];
+  const CATEGORIAS_DESPESA = ["Material", "Transporte", "Alimentação", "Internet / Telefone", "Aluguel", "Marketing", "Contador", "DAS - Simples Nacional", "INSS", "Saúde", "Educação", "Outros"];
 
   try {
     const { tipo, mensagem, contexto, imagem } = req.body;
@@ -36,7 +36,9 @@ Exemplo: {"tipo":"despesa","valor":80.00,"categoria":"Alimentação","data":"202
 Categorias de receita: ${CATEGORIAS_RECEITA.join(", ")}
 Categorias de despesa: ${CATEGORIAS_DESPESA.join(", ")}
 Hoje: ${new Date().toISOString().split("T")[0]}
-recebeu/vendeu = receita. gastou/pagou = despesa. mil = x1000. Se nenhuma categoria se encaixar, use "Outros".`;
+recebeu/vendeu = receita. gastou/pagou = despesa. mil = x1000.
+Se a despesa for sobre algo especifico como INSS, saude, educacao, use o nome como categoria.
+Se nenhuma categoria se encaixar, use "Outros".`;
 
     } else if (tipo === "ocr") {
       systemPrompt = `Extraia dados da imagem. JSON apenas:
@@ -81,13 +83,17 @@ recebeu/vendeu = receita. gastou/pagou = despesa. mil = x1000. Se nenhuma catego
         try {
           const obj = JSON.parse(match[0]);
           if (obj.tipo && obj.valor) {
-            // Valida e corrige a categoria
-            const listaCats = obj.tipo === "receita" ? CATEGORIAS_RECEITA : CATEGORIAS_DESPESA;
-            if (!listaCats.includes(obj.categoria)) {
-              // Tenta encontrar por similaridade (sem acento)
-              const semAcento = (s) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-              const encontrada = listaCats.find(c => semAcento(c) === semAcento(obj.categoria || ""));
-              obj.categoria = encontrada || "Outros";
+            // Tenta corrigir acento da categoria
+            const semAcento = (s) => (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+            const todasCats = [...CATEGORIAS_RECEITA, ...CATEGORIAS_DESPESA];
+            const encontrada = todasCats.find(c => semAcento(c) === semAcento(obj.categoria));
+            if (encontrada) {
+              obj.categoria = encontrada;
+            }
+            // Se nao encontrou, MANTEM o que a IA retornou (pode ser categoria custom do usuario)
+            // So forca "Outros" se estiver vazio
+            if (!obj.categoria || obj.categoria.trim() === "") {
+              obj.categoria = "Outros";
             }
             resposta = JSON.stringify(obj);
             console.log("CLEAN JSON:", resposta);
