@@ -21,35 +21,27 @@ ${contexto || "Nenhum dado disponivel"}
 
 REGRAS:
 1. Respostas curtas, maximo 3 paragrafos
-2. NAO use markdown. Nada de ** ou * ou # ou - para listas. Texto puro.
+2. NAO use markdown. Nada de ** ou * ou #. Texto puro.
 3. Use emojis com moderacao
 4. Quando perguntarem sobre faturamento, despesas ou saldo, USE os dados acima
 5. Se nao souber, diga "Consulte seu contador"
 6. Linguagem simples e amigavel`;
 
     } else if (tipo === "lancamento") {
-      systemPrompt = `Extraia dados financeiros da frase. Responda SOMENTE com JSON puro. NADA de texto extra.
-
-{"tipo":"receita","valor":1500.00,"categoria":"Servicos Prestados","data":"2026-08-24","descricao":"consultoria"}
-
-Categorias receita: Vendas, Servicos Prestados, Comissoes, Outros
-Categorias despesa: Material, Transporte, Alimentacao, Internet / Telefone, Aluguel, Marketing, Contador, DAS - Simples Nacional, Outros
-
+      systemPrompt = `Converta a frase em JSON. Responda SOMENTE o JSON, nada mais.
+{"tipo":"despesa","valor":80.00,"categoria":"Alimentacao","data":"2026-08-25","descricao":"almoco"}
+Categorias: Vendas, Servicos Prestados, Comissoes, Material, Transporte, Alimentacao, Internet / Telefone, Aluguel, Marketing, Contador, Outros
 Hoje: ${new Date().toISOString().split("T")[0]}
-
-recebeu/vendeu/faturou = receita. gastou/pagou/comprou = despesa. mil/k = x1000. Valor decimal (80.00).`;
+recebeu/vendeu = receita. gastou/pagou = despesa. mil = x1000.`;
 
     } else if (tipo === "ocr") {
-      systemPrompt = `Extraia dados da imagem. Responda SOMENTE com JSON:
+      systemPrompt = `Extraia dados da imagem. JSON apenas:
 {"valor":0.00,"data":"2026-01-01","descricao":"descricao","tipo_documento":"NF"}`;
     } else {
       return res.status(400).json({ error: "Tipo invalido" });
     }
 
     const parts = [{ text: userMessage }];
-    if (tipo === "ocr" && imagem) {
-      parts.push({ inline_data: { mime_type: "image/jpeg", data: imagem.split(",")[1] || imagem } });
-    }
 
     const geminiRes = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
@@ -61,7 +53,7 @@ recebeu/vendeu/faturou = receita. gastou/pagou/comprou = despesa. mil/k = x1000.
           contents: [{ role: "user", parts }],
           generationConfig: {
             temperature: tipo === "chat" ? 0.7 : 0.01,
-            maxOutputTokens: tipo === "chat" ? 1024 : 256,
+            maxOutputTokens: 1024,
           }
         }),
       }
@@ -76,34 +68,33 @@ recebeu/vendeu/faturou = receita. gastou/pagou/comprou = despesa. mil/k = x1000.
     const data = await geminiRes.json();
     let resposta = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
-    // Para lancamento: limpa e valida o JSON no servidor
-    // Assim o frontend recebe JSON perfeito sem precisar parsear
+    console.log("RAW Gemini:", tipo, resposta);
+
     if (tipo === "lancamento" && resposta) {
-      try {
-        // Remove tudo que nao eh JSON
-        let limpo = resposta.replace(/```json/gi, "").replace(/```/g, "").trim();
-        // Extrai o objeto JSON
-        const match = limpo.match(/\{[\s\S]*\}/);
-        if (match) {
-          // Parse e re-stringify para garantir JSON valido e limpo
+      // Limpa markdown e extrai JSON
+      let limpo = resposta.replace(/```json/gi, "").replace(/```/g, "").replace(/\n/g, " ").trim();
+      const match = limpo.match(/\{[^}]*\}/);
+      if (match) {
+        try {
           const obj = JSON.parse(match[0]);
-          resposta = JSON.stringify(obj);
-          console.log("Lancamento OK:", resposta);
-        } else {
-          console.error("Sem JSON na resposta:", limpo);
+          // Garante que tem os campos obrigatorios
+          if (obj.tipo && obj.valor) {
+            resposta = JSON.stringify(obj);
+            console.log("CLEAN JSON:", resposta);
+          }
+        } catch (e) {
+          console.error("Parse fail:", e.message, "matched:", match[0]);
         }
-      } catch (e) {
-        console.error("Erro ao limpar JSON:", e.message, "resposta:", resposta);
+      } else {
+        console.error("No JSON match in:", limpo);
       }
     }
 
     if (tipo === "chat") {
-      // Remove markdown residual
       resposta = resposta.replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1");
     }
 
-    console.log("Resposta final tipo:", tipo, "tamanho:", resposta.length);
-    return res.status(200).json({ resposta });
+    return res.status(200).json({ resposta: resposta });
 
   } catch (error) {
     console.error("Server error:", error.message);
