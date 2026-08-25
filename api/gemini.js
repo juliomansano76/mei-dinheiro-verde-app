@@ -8,6 +8,9 @@ export default async function handler(req, res) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return res.status(500).json({ error: "API key not configured" });
 
+  const CATEGORIAS_RECEITA = ["Vendas", "Serviços Prestados", "Comissões", "Outros"];
+  const CATEGORIAS_DESPESA = ["Material", "Transporte", "Alimentação", "Internet / Telefone", "Aluguel", "Marketing", "Contador", "DAS - Simples Nacional", "Outros"];
+
   try {
     const { tipo, mensagem, contexto, imagem } = req.body;
     let systemPrompt = "";
@@ -29,10 +32,11 @@ REGRAS:
 
     } else if (tipo === "lancamento") {
       systemPrompt = `Converta a frase em JSON. Responda SOMENTE o JSON, nada mais.
-{"tipo":"despesa","valor":80.00,"categoria":"Alimentacao","data":"2026-08-25","descricao":"almoco"}
-Categorias: Vendas, Servicos Prestados, Comissoes, Material, Transporte, Alimentacao, Internet / Telefone, Aluguel, Marketing, Contador, Outros
+Exemplo: {"tipo":"despesa","valor":80.00,"categoria":"Alimentação","data":"2026-08-25","descricao":"almoco"}
+Categorias de receita: ${CATEGORIAS_RECEITA.join(", ")}
+Categorias de despesa: ${CATEGORIAS_DESPESA.join(", ")}
 Hoje: ${new Date().toISOString().split("T")[0]}
-recebeu/vendeu = receita. gastou/pagou = despesa. mil = x1000.`;
+recebeu/vendeu = receita. gastou/pagou = despesa. mil = x1000. Se nenhuma categoria se encaixar, use "Outros".`;
 
     } else if (tipo === "ocr") {
       systemPrompt = `Extraia dados da imagem. JSON apenas:
@@ -71,22 +75,26 @@ recebeu/vendeu = receita. gastou/pagou = despesa. mil = x1000.`;
     console.log("RAW Gemini:", tipo, resposta);
 
     if (tipo === "lancamento" && resposta) {
-      // Limpa markdown e extrai JSON
       let limpo = resposta.replace(/```json/gi, "").replace(/```/g, "").replace(/\n/g, " ").trim();
       const match = limpo.match(/\{[^}]*\}/);
       if (match) {
         try {
           const obj = JSON.parse(match[0]);
-          // Garante que tem os campos obrigatorios
           if (obj.tipo && obj.valor) {
+            // Valida e corrige a categoria
+            const listaCats = obj.tipo === "receita" ? CATEGORIAS_RECEITA : CATEGORIAS_DESPESA;
+            if (!listaCats.includes(obj.categoria)) {
+              // Tenta encontrar por similaridade (sem acento)
+              const semAcento = (s) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+              const encontrada = listaCats.find(c => semAcento(c) === semAcento(obj.categoria || ""));
+              obj.categoria = encontrada || "Outros";
+            }
             resposta = JSON.stringify(obj);
             console.log("CLEAN JSON:", resposta);
           }
         } catch (e) {
           console.error("Parse fail:", e.message, "matched:", match[0]);
         }
-      } else {
-        console.error("No JSON match in:", limpo);
       }
     }
 
