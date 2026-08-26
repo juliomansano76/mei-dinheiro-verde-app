@@ -1771,9 +1771,9 @@ function GraficoPizza({ dados, tamanho = 160 }) {
     : total.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
   return (
-    <div className="flex items-center gap-5">
-      <div className="relative flex-shrink-0" style={{ width: tamanho, height: tamanho }}>
-        <svg width={tamanho} height={tamanho} viewBox="0 0 100 100">
+    <div className="flex flex-col items-center gap-4">
+      <div className="relative flex-shrink-0" style={{ width: 140, height: 140 }}>
+        <svg width={140} height={140} viewBox="0 0 100 100">
           {fatias.map((f, i) => <path key={i} d={f.path} fill={f.cor} stroke="white" strokeWidth="1.5"/>)}
           <circle cx="50" cy="50" r="24" fill="white"/>
         </svg>
@@ -1782,12 +1782,12 @@ function GraficoPizza({ dados, tamanho = 160 }) {
           <span className="text-sm font-bold text-gray-800 leading-tight mt-0.5">{fmt(total)}</span>
         </div>
       </div>
-      <div className="flex-1 space-y-2">{fatias.map((f, i) => (
-        <div key={i} className="flex items-center gap-2">
+      <div className="w-full space-y-2">{fatias.map((f, i) => (
+        <div key={i} className="flex items-center gap-2 min-w-0">
           <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: f.cor }}/>
           <span className="text-xs text-gray-600 flex-1 truncate">{f.categoria}</span>
-          <span className="text-xs text-gray-500">{fmt(f.valor)}</span>
-          <span className="text-[11px] font-semibold text-gray-800 w-8 text-right">{Math.round(f.pct*100)}%</span>
+          <span className="text-xs text-gray-500 flex-shrink-0">{fmt(f.valor)}</span>
+          <span className="text-[11px] font-semibold text-gray-800 flex-shrink-0 w-8 text-right">{Math.round(f.pct*100)}%</span>
         </div>))}</div>
     </div>
   );
