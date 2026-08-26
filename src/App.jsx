@@ -424,7 +424,7 @@ function useIA() {
 // ============================================================
 function AssistenteMEIChat({ fin, onFechar }) {
   const [mensagens, setMensagens] = useState([
-    { de: "bot", texto: "Olá! Sou o assistente do MEI Dinheiro Verde. Pode me perguntar qualquer dúvida sobre MEI, DAS, limite de faturamento, declaração anual... 😊" }
+    { de: "bot", texto: "Olá! Sou o assistente do Dinheiro Verde. Pode me perguntar qualquer dúvida sobre finanças, impostos, controle de gastos... 😊" }
   ]);
   const [input, setInput] = useState("");
   const ia = useIA();
@@ -490,8 +490,8 @@ Total de lançamentos: ${fin.lancamentos.length}.
         <div className="flex items-center gap-3">
           <span className="text-xl">🤖</span>
           <div>
-            <p className="font-semibold text-sm">Assistente MEI</p>
-            <p className="text-emerald-200 text-xs">Tire suas dúvidas sobre MEI</p>
+            <p className="font-semibold text-sm">Assistente Financeiro</p>
+            <p className="text-emerald-200 text-xs">Tire suas dúvidas</p>
           </div>
         </div>
         <button onClick={onFechar} className="text-emerald-200 active:text-white"><Ic.X s={22}/></button>
@@ -525,7 +525,7 @@ Total de lançamentos: ${fin.lancamentos.length}.
       <div className="flex-shrink-0 border-t border-gray-200 bg-white px-4 py-3 flex gap-2">
         <input type="text" value={input} onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter") enviar(); }}
-          placeholder="Digite sua dúvida sobre MEI..."
+          placeholder="Digite sua dúvida..."
           className="flex-1 border border-gray-200 rounded-xl px-4 py-3 text-sm bg-gray-50 outline-none focus:border-emerald-400"/>
         <button onClick={enviar} disabled={!input.trim() || ia.carregando}
           className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors ${input.trim() && !ia.carregando ? "bg-emerald-600 active:bg-emerald-700" : "bg-gray-200"}`}>
@@ -1297,28 +1297,34 @@ function CheckoutPIX({ plano, onVoltar, onConfirmar, userEmail }) {
 // ============================================================
 // MODAL PREMIUM
 // ============================================================
-function ModalPremium({ onFechar, onAssinar }) {
+function ModalPremium({ onFechar, onAssinar, regime }) {
   const [plano, setPlano] = useState("mensal");
+  const isPF = regime === "Pessoa Física";
+
+  const beneficios = [
+    { icone: "📦", texto: isPF ? "Relatório mensal em PDF" : "Pacote do contador em PDF com comprovantes" },
+    ...(!isPF ? [{ icone: "📋", texto: "Assistente de pagamento do DAS com scanner" }] : []),
+    { icone: "🤖", texto: "Assistente financeiro com IA" },
+    { icone: "💬", texto: "Lançamento rápido por texto com IA" },
+    { icone: "📷", texto: "Anexar fotos e documentos aos lançamentos" },
+    { icone: "🏷️", texto: "Categorias personalizáveis" },
+    { icone: "📊", texto: "Relatórios avançados e evolução mensal" },
+    { icone: "📤", texto: "Compartilhar resumo via WhatsApp" },
+    { icone: "💾", texto: "Backup e exportação de dados" },
+    ...(!isPF ? [{ icone: "📈", texto: "Projeção de faturamento até dezembro" }] : []),
+  ];
+
   return (
     <div className="fixed inset-0 bg-black/60 z-[70] flex items-end sm:items-center justify-center" onClick={onFechar}>
       <div className="bg-white rounded-t-3xl sm:rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="bg-emerald-600 rounded-t-3xl sm:rounded-t-2xl p-6 text-white text-center">
           <span className="text-3xl">⭐</span>
-          <h2 className="text-xl font-bold mt-2">MEI Dinheiro Verde Premium</h2>
-          <p className="text-emerald-100 text-sm mt-1">Deixe o app cuidar do seu MEI</p>
+          <h2 className="text-xl font-bold mt-2">Dinheiro Verde Premium</h2>
+          <p className="text-emerald-100 text-sm mt-1">{isPF ? "Controle total das suas finanças" : "Deixe o app cuidar do seu negócio"}</p>
         </div>
         <div className="p-6">
           <div className="space-y-3">
-            {[
-              { icone: "📦", texto: "Pacote do contador em PDF com comprovantes" },
-              { icone: "📋", texto: "Assistente de pagamento do DAS com scanner" },
-              { icone: "📷", texto: "Anexar fotos e documentos aos lançamentos" },
-              { icone: "🏷️", texto: "Categorias personalizáveis" },
-              { icone: "📊", texto: "Relatórios avançados e evolução mensal" },
-              { icone: "📤", texto: "Compartilhar resumo via WhatsApp" },
-              { icone: "💾", texto: "Backup e exportação de dados" },
-              { icone: "📈", texto: "Projeção de faturamento até dezembro" },
-            ].map((item, i) => (
+            {beneficios.map((item, i) => (
               <div key={i} className="flex items-center gap-3 text-sm text-gray-700">
                 <span className="text-lg">{item.icone}</span><span>{item.texto}</span>
               </div>
@@ -1418,7 +1424,7 @@ function Dashboard({ fin, nav, onNav, premium }) {
             + `💸 Despesas: ${fmt(despesas)}\n`
             + `${saldo >= 0 ? "✅" : "🔴"} Saldo: ${fmt(saldo)}\n\n`
             + `📈 Faturamento anual: ${fmt(fin.faturamentoAnual)} de ${fmt(fin.config.limiteAnual)} (${Math.round(fin.percentualFaturamento)}%)\n\n`
-            + `_Enviado pelo MEI Dinheiro Verde_\n`
+            + `_Enviado pelo Dinheiro Verde_\n`
             + `mei-dinheiro-verde-app.vercel.app`;
           const url = `https://wa.me/?text=${encodeURIComponent(texto)}`;
           window.open(url, "_blank");
@@ -1895,7 +1901,7 @@ function PacoteContador({ fin, nav, lancs, receitas, despesas, comAnexo, arq, pr
       y = 50;
 
       // ─── DADOS DO MEI ───
-      texto("Dados do MEI", margem, 12, "bold");
+      texto("Dados Cadastrais", margem, 12, "bold");
       y += 7;
       texto(`Nome: ${nomeMEI}`, margem, 10); y += 5;
       texto(`CNPJ: ${cnpjMEI}`, margem, 10); y += 5;
@@ -3049,7 +3055,7 @@ export default function App() {
     <div className="max-w-md mx-auto min-h-screen bg-gray-50">
       {renderPagina()}
       {!semNav && <BottomNav pagina={pagina} onNav={navegar}/>}
-      {premium.modalAberto && <ModalPremium onFechar={() => premium.setModalAberto(false)} onAssinar={(plano) => { premium.setModalAberto(false); setCheckoutPlano(plano); setPagina("checkout"); }}/>}
+      {premium.modalAberto && <ModalPremium regime={fin.config.regime} onFechar={() => premium.setModalAberto(false)} onAssinar={(plano) => { premium.setModalAberto(false); setCheckoutPlano(plano); setPagina("checkout"); }}/>}
       {pagina === "checkout" && <div className="fixed inset-0 z-[60] bg-gray-50"><CheckoutPIX plano={checkoutPlano} userEmail={auth.usuario?.email} onVoltar={() => { setCheckoutPlano(null); setPagina("dashboard"); }} onConfirmar={() => { setCheckoutPlano(null); setPagina("dashboard"); }}/></div>}
     </div>
   );
