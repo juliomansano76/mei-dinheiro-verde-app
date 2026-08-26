@@ -721,9 +721,11 @@ function AssistenteFinanceiro({ fin, nav, receitas, despesas, saldo }) {
   const mesesPassados = mesAtual + 1;
   const mesesRestantes = Math.max(1, 12 - mesAtual);
   const saldoLimite = fin.config.limiteAnual - fin.faturamentoAnual;
+  const isPF = fin.config.regime === "Pessoa Física";
+  const temLimite = !isPF && fin.config.limiteAnual > 0;
 
-  // 1. Projeção de faturamento anual
-  if (fin.faturamentoAnual > 0 && mesesPassados >= 2) {
+  // 1. Projeção de faturamento anual (só MEI/Simples)
+  if (temLimite && fin.faturamentoAnual > 0 && mesesPassados >= 2) {
     const mediaMensal = fin.faturamentoAnual / mesesPassados;
     const projecaoAnual = mediaMensal * 12;
     if (projecaoAnual > fin.config.limiteAnual) {
@@ -790,26 +792,28 @@ function AssistenteFinanceiro({ fin, nav, receitas, despesas, saldo }) {
     }
   }
 
-  // 4. DAS com contagem regressiva
-  const diaDAS = fin.config.diaDAS || 20;
-  const mesAtualStr = `${anoAtual}-${String(mesAtual + 1).padStart(2, "0")}`;
-  const dasDoMes = fin.registrosDAS.find(d => d.mesReferencia === mesAtualStr);
-  if (!dasDoMes || dasDoMes.status !== "pago") {
-    const diasParaDAS = diaDAS - diaHoje;
-    if (diasParaDAS > 0 && diasParaDAS <= 5) {
-      mensagens.push({
-        tipo: "amarelo",
-        icone: "⏰",
-        titulo: `DAS vence em ${diasParaDAS} dia${diasParaDAS > 1 ? "s" : ""}`,
-        texto: `O boleto do Simples Nacional vence dia ${diaDAS}. Pague para manter seu INSS em dia.`,
-      });
-    } else if (diasParaDAS <= 0 && diasParaDAS >= -10) {
-      mensagens.push({
-        tipo: "vermelho",
-        icone: "🚨",
-        titulo: "DAS vencido!",
-        texto: `O DAS venceu há ${Math.abs(diasParaDAS)} dia${Math.abs(diasParaDAS) > 1 ? "s" : ""}. Pague o quanto antes para evitar multa e juros.`,
-      });
+  // 4. DAS com contagem regressiva (só MEI/Simples)
+  if (!isPF) {
+    const diaDAS = fin.config.diaDAS || 20;
+    const mesAtualStr = `${anoAtual}-${String(mesAtual + 1).padStart(2, "0")}`;
+    const dasDoMes = fin.registrosDAS.find(d => d.mesReferencia === mesAtualStr);
+    if (!dasDoMes || dasDoMes.status !== "pago") {
+      const diasParaDAS = diaDAS - diaHoje;
+      if (diasParaDAS > 0 && diasParaDAS <= 5) {
+        mensagens.push({
+          tipo: "amarelo",
+          icone: "⏰",
+          titulo: `DAS vence em ${diasParaDAS} dia${diasParaDAS > 1 ? "s" : ""}`,
+          texto: `O boleto do DAS-MEI vence dia ${diaDAS}. Pague para manter seu INSS em dia.`,
+        });
+      } else if (diasParaDAS <= 0 && diasParaDAS >= -10) {
+        mensagens.push({
+          tipo: "vermelho",
+          icone: "🚨",
+          titulo: "DAS vencido!",
+          texto: `O DAS venceu há ${Math.abs(diasParaDAS)} dia${Math.abs(diasParaDAS) > 1 ? "s" : ""}. Pague o quanto antes para evitar multa e juros.`,
+        });
+      }
     }
   }
 
@@ -2466,6 +2470,10 @@ function Configuracoes({ fin, auth, premium }) {
         <div className="flex gap-2">
           {["MEI", "Simples Nacional", "Pessoa Física"].map(r => (
             <button key={r} onClick={() => {
+              if (fin.config.regime === r) return;
+              if (fin.lancamentos.length > 0) {
+                if (!confirm(`Alterar para "${r}" vai redefinir suas categorias padrão.\n\nSeus lançamentos existentes serão mantidos.\n\nDeseja continuar?`)) return;
+              }
               const cats = categoriasParaRegime(r);
               fin.salvarConfig({ regime: r, categoriasReceita: cats.receita, categoriasDespesa: cats.despesa, limiteAnual: r === "Pessoa Física" ? 0 : (r === "MEI" ? 81000 : fin.config.limiteAnual) });
             }}
