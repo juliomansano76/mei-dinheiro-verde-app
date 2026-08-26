@@ -2401,7 +2401,11 @@ function Configuracoes({ fin, auth, premium }) {
   function iniciarEdicao(campo, val) { setEditando(campo); setValorEdit(val); }
   function salvarEdicao() {
     if (editando === "nome") fin.salvarConfig({ nome: valorEdit });
-    else if (editando === "cnpj") fin.salvarConfig({ cnpj: mascaraCNPJ(valorEdit) });
+    else if (editando === "cnpj") {
+      const nums = valorEdit.replace(/\D/g, "");
+      if (nums.length > 0 && nums.length < 14) { alert("CNPJ precisa ter 14 dígitos."); return; }
+      fin.salvarConfig({ cnpj: nums.length === 14 ? mascaraCNPJ(valorEdit) : "" });
+    }
     else if (editando === "limiteAnual") fin.salvarConfig({ limiteAnual: parseFloat(valorEdit) || 81000 });
     else if (editando === "diaDAS") fin.salvarConfig({ diaDAS: parseInt(valorEdit) || 20 });
     setEditando(null);
