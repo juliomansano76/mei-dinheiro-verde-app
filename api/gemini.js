@@ -1,4 +1,8 @@
+// Vercel Serverless Function — proxy seguro para a API do Gemini
+// A chave da API fica no servidor (env var), nunca exposta no frontend
+
 export default async function handler(req, res) {
+  // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -8,47 +12,75 @@ export default async function handler(req, res) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return res.status(500).json({ error: "API key not configured" });
 
-  const CATEGORIAS_RECEITA = ["Vendas", "Serviços Prestados", "Comissões", "Outros"];
-  const CATEGORIAS_DESPESA = ["Material", "Transporte", "Alimentação", "Internet / Telefone", "Aluguel", "Marketing", "Contador", "DAS - Simples Nacional", "INSS", "Saúde", "Educação", "Outros"];
-
   try {
     const { tipo, mensagem, contexto, imagem } = req.body;
+
     let systemPrompt = "";
-    let userMessage = mensagem || "";
+    let userContent = [];
 
     if (tipo === "chat") {
-      systemPrompt = `Voce eh o assistente financeiro do app MEI Dinheiro Verde.
+      // Assistente MEI - chatbot
+      systemPrompt = `Você é o assistente financeiro do app MEI Dinheiro Verde. Responda dúvidas sobre MEI de forma clara, curta e prática.
 
-DADOS FINANCEIROS DO USUARIO:
-${contexto || "Nenhum dado disponivel"}
+DADOS FINANCEIROS DO USUÁRIO (use esses dados para responder perguntas sobre faturamento, despesas, saldo, etc.):
+${contexto || "Não disponível"}
 
-REGRAS:
-1. Respostas curtas, maximo 3 paragrafos
-2. NAO use markdown. Nada de ** ou * ou #. Texto puro.
-3. Use emojis com moderacao
-4. Quando perguntarem sobre faturamento, despesas ou saldo, USE os dados acima
-5. Se nao souber, diga "Consulte seu contador"
-6. Linguagem simples e amigavel`;
+Regras:
+- Respostas curtas (máximo 3 parágrafos)
+- NÃO use markdown (nada de ** ou * para negrito/itálico)
+- Use emojis com moderação
+- Quando o usuário perguntar sobre seus números, USE os dados acima para dar a resposta exata
+- Se não souber algo específico, diga "Consulte seu contador"
+- Foque em: DAS, limite de faturamento (R$ 81k), DASN-SIMEI, obrigações do MEI`;
+
+      userContent = [{ type: "text", text: mensagem }];
 
     } else if (tipo === "lancamento") {
-      systemPrompt = `Converta a frase em JSON. Responda SOMENTE o JSON, nada mais.
-Exemplo: {"tipo":"despesa","valor":80.00,"categoria":"Alimentação","data":"2026-08-25","descricao":"almoco"}
-Categorias de receita: ${CATEGORIAS_RECEITA.join(", ")}
-Categorias de despesa: ${CATEGORIAS_DESPESA.join(", ")}
-Hoje: ${new Date().toISOString().split("T")[0]}
-recebeu/vendeu = receita. gastou/pagou = despesa. mil = x1000.
-Se a despesa for sobre algo especifico como INSS, saude, educacao, use o nome como categoria.
-Se nenhuma categoria se encaixar, use "Outros".`;
+      // Lançamento por texto natural
+      systemPrompt = `Extraia dados de um lançamento financeiro de MEI a partir da frase do usuário.
+
+RESPONDA APENAS COM JSON. Nada de markdown, nada de explicação, nada de crases. Apenas o JSON puro.
+
+Formato:
+{"tipo":"receita","valor":1500.00,"categoria":"Serviços Prestados","data":"2026-08-24","descricao":"consultoria"}
+
+Categorias de receita: Vendas, Serviços Prestados, Comissões, Outros
+Categorias de despesa: Material, Transporte, Alimentação, Internet / Telefone, Aluguel, Marketing, Contador, DAS-MEI, Outros
+
+Hoje é: ${new Date().toISOString().split("T")[0]}
+
+Regras:
+- Se não mencionar data, use hoje
+- recebi/vendeu/faturei/entrou = receita
+- gastei/paguei/comprei/saiu = despesa
+- Valor sempre número decimal (50.00)
+- Escolha a categoria mais adequada da lista`;
+
+      userContent = [{ type: "text", text: mensagem }];
 
     } else if (tipo === "ocr") {
-      systemPrompt = `Extraia dados da imagem. JSON apenas:
-{"valor":0.00,"data":"2026-01-01","descricao":"descricao","tipo_documento":"NF"}`;
+      // Leitura de comprovante por foto
+      systemPrompt = `Analise esta imagem de um comprovante financeiro (nota fiscal, recibo, comprovante de Pix, boleto) e extraia os dados. Responda APENAS com JSON válido, sem markdown.
+
+Formato: {"valor":1500.00,"data":"YYYY-MM-DD","descricao":"descrição do documento","tipo_documento":"NF/recibo/pix/boleto"}
+
+Se não conseguir ler algum campo, use null.`;
+
+      userContent = [
+        { type: "text", text: "Extraia os dados deste comprovante:" },
+      ];
+      if (imagem) {
+        userContent.push({
+          type: "image_url",
+          image_url: { url: imagem }
+        });
+      }
+
     } else {
-      return res.status(400).json({ error: "Tipo invalido" });
+      return res.status(400).json({ error: "Tipo inválido" });
     }
 
-    const parts = [{ text: userMessage }];
-
+    // Chama a API do Gemini
     const geminiRes = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
       {
@@ -56,62 +88,32 @@ Se nenhuma categoria se encaixar, use "Outros".`;
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           system_instruction: { parts: [{ text: systemPrompt }] },
-          contents: [{ role: "user", parts }],
+          contents: [{ role: "user", parts: userContent.map(c => {
+            if (c.type === "text") return { text: c.text };
+            if (c.type === "image_url") return { inline_data: { mime_type: "image/jpeg", data: c.image_url.url.split(",")[1] } };
+            return { text: c.text };
+          })}],
           generationConfig: {
-            temperature: tipo === "chat" ? 0.7 : 0.01,
-            maxOutputTokens: 1024,
+            temperature: tipo === "chat" ? 0.7 : 0.1,
+            maxOutputTokens: tipo === "chat" ? 1024 : 300,
           }
         }),
       }
     );
 
     if (!geminiRes.ok) {
-      const errText = await geminiRes.text();
-      console.error("Gemini HTTP error:", geminiRes.status, errText);
-      return res.status(500).json({ error: "Erro na API" });
+      const err = await geminiRes.text();
+      console.error("Gemini error:", err);
+      return res.status(500).json({ error: "Erro na API do Gemini" });
     }
 
     const data = await geminiRes.json();
-    let resposta = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const resposta = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
-    console.log("RAW Gemini:", tipo, resposta);
-
-    if (tipo === "lancamento" && resposta) {
-      let limpo = resposta.replace(/```json/gi, "").replace(/```/g, "").replace(/\n/g, " ").trim();
-      const match = limpo.match(/\{[^}]*\}/);
-      if (match) {
-        try {
-          const obj = JSON.parse(match[0]);
-          if (obj.tipo && obj.valor) {
-            // Tenta corrigir acento da categoria
-            const semAcento = (s) => (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-            const todasCats = [...CATEGORIAS_RECEITA, ...CATEGORIAS_DESPESA];
-            const encontrada = todasCats.find(c => semAcento(c) === semAcento(obj.categoria));
-            if (encontrada) {
-              obj.categoria = encontrada;
-            }
-            // Se nao encontrou, MANTEM o que a IA retornou (pode ser categoria custom do usuario)
-            // So forca "Outros" se estiver vazio
-            if (!obj.categoria || obj.categoria.trim() === "") {
-              obj.categoria = "Outros";
-            }
-            resposta = JSON.stringify(obj);
-            console.log("CLEAN JSON:", resposta);
-          }
-        } catch (e) {
-          console.error("Parse fail:", e.message, "matched:", match[0]);
-        }
-      }
-    }
-
-    if (tipo === "chat") {
-      resposta = resposta.replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1");
-    }
-
-    return res.status(200).json({ resposta: resposta });
+    return res.status(200).json({ resposta });
 
   } catch (error) {
-    console.error("Server error:", error.message);
-    return res.status(500).json({ error: error.message });
+    console.error("Server error:", error);
+    return res.status(500).json({ error: "Erro interno do servidor" });
   }
 }
