@@ -58,7 +58,16 @@ function useAuth() {
 // ============================================================
 const CATEGORIAS_RECEITA_PADRAO = ["Vendas", "Serviços Prestados", "Comissões", "Outros"];
 const CATEGORIAS_DESPESA_PADRAO = ["Material", "Transporte", "Alimentação", "Internet / Telefone", "Aluguel", "Marketing", "Contador", "DAS-MEI", "Outros"];
+
+const CATEGORIAS_PF_RECEITA = ["Salário", "Freelance", "Aluguel Recebido", "Investimentos", "Outros"];
+const CATEGORIAS_PF_DESPESA = ["Moradia", "Alimentação", "Transporte", "Saúde", "Educação", "Lazer", "Contas / Serviços", "Outros"];
+
 const MESES_NOME = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+
+function categoriasParaRegime(regime) {
+  if (regime === "Pessoa Física") return { receita: CATEGORIAS_PF_RECEITA, despesa: CATEGORIAS_PF_DESPESA };
+  return { receita: CATEGORIAS_RECEITA_PADRAO, despesa: CATEGORIAS_DESPESA_PADRAO };
+}
 
 
 // ============================================================
@@ -75,7 +84,7 @@ function useFinancas(userId) {
   const [config, setConfig] = useState({
     nome: "", cnpj: "", limiteAnual: 81000, diaDAS: 20,
     categoriasReceita: CATEGORIAS_RECEITA_PADRAO,
-    categoriasDespesa: CATEGORIAS_DESPESA_PADRAO, bancoPreferido: "", premium: false, premiumAte: null, onboardingCompleto: false, termosAceitosEm: null,
+    categoriasDespesa: CATEGORIAS_DESPESA_PADRAO, bancoPreferido: "", premium: false, premiumAte: null, onboardingCompleto: false, termosAceitosEm: null, regime: "MEI",
   });
   const [carregando, setCarregando] = useState(true);
 
@@ -104,7 +113,7 @@ function useFinancas(userId) {
           nome: cfgRes.data.nome || "", cnpj: cfgRes.data.cnpj || "",
           limiteAnual: Number(cfgRes.data.limite_anual) || 81000, diaDAS: cfgRes.data.dia_das || 20,
           categoriasReceita: cfgRes.data.categorias_receita || CATEGORIAS_RECEITA_PADRAO,
-          categoriasDespesa: cfgRes.data.categorias_despesa || CATEGORIAS_DESPESA_PADRAO, bancoPreferido: cfgRes.data.banco_preferido || "", premium: cfgRes.data.premium || false, premiumAte: cfgRes.data.premium_ate || null, onboardingCompleto: cfgRes.data.onboarding_completo || false, termosAceitosEm: cfgRes.data.termos_aceitos_em || null,
+          categoriasDespesa: cfgRes.data.categorias_despesa || CATEGORIAS_DESPESA_PADRAO, bancoPreferido: cfgRes.data.banco_preferido || "", premium: cfgRes.data.premium || false, premiumAte: cfgRes.data.premium_ate || null, onboardingCompleto: cfgRes.data.onboarding_completo || false, termosAceitosEm: cfgRes.data.termos_aceitos_em || null, regime: cfgRes.data.regime || "MEI",
         });
       }
       setCarregando(false);
@@ -178,7 +187,7 @@ function useFinancas(userId) {
       user_id: userId, nome: atualizada.nome, cnpj: atualizada.cnpj,
       limite_anual: atualizada.limiteAnual, dia_das: atualizada.diaDAS,
       categorias_receita: atualizada.categoriasReceita, categorias_despesa: atualizada.categoriasDespesa,
-      banco_preferido: atualizada.bancoPreferido || "", onboarding_completo: atualizada.onboardingCompleto || false, termos_aceitos_em: atualizada.termosAceitosEm || null,
+      banco_preferido: atualizada.bancoPreferido || "", onboarding_completo: atualizada.onboardingCompleto || false, termos_aceitos_em: atualizada.termosAceitosEm || null, regime: atualizada.regime || "MEI",
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id" }).select();
     if (error) console.error("Erro ao salvar config:", error);
@@ -1365,7 +1374,9 @@ function Dashboard({ fin, nav, onNav, premium }) {
   const receitas = fin.receitasDoMesAno(nav.mes, nav.ano);
   const despesas = fin.despesasDoMesAno(nav.mes, nav.ano);
   const saldo = receitas - despesas;
-  const nomeDisplay = fin.config.nome || "MEI";
+  const isPF = fin.config.regime === "Pessoa Física";
+  const temLimite = !isPF && fin.config.limiteAnual > 0;
+  const nomeDisplay = fin.config.nome || (isPF ? "você" : "MEI");
 
   const mesAtualStr = `${nav.ano}-${String(nav.mes + 1).padStart(2, "0")}`;
   const dasDoMes = fin.registrosDAS.find(d => d.mesReferencia === mesAtualStr);
@@ -1412,30 +1423,32 @@ function Dashboard({ fin, nav, onNav, premium }) {
         </button>
       )}
 
-      {/* Termômetro */}
-      <div className="mt-4 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
-        <div className="flex justify-between items-baseline">
-          <p className="text-sm font-medium text-gray-700">Faturamento anual</p>
-          <p className="text-sm font-semibold text-emerald-600">{Math.round(fin.percentualFaturamento)}%</p>
+      {/* Termômetro — só MEI e Simples */}
+      {temLimite && (
+        <div className="mt-4 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+          <div className="flex justify-between items-baseline">
+            <p className="text-sm font-medium text-gray-700">Faturamento anual</p>
+            <p className="text-sm font-semibold text-emerald-600">{Math.round(fin.percentualFaturamento)}%</p>
+          </div>
+          <p className="text-xs text-gray-400 mt-0.5">{fmt(fin.faturamentoAnual)} de {fmt(fin.config.limiteAnual)}</p>
+          <div className="mt-3 w-full bg-gray-100 rounded-full h-3">
+            <div className={`h-3 rounded-full transition-all duration-700 ${fin.percentualFaturamento > 80 ? "bg-red-500" : fin.percentualFaturamento > 60 ? "bg-amber-500" : "bg-emerald-500"}`}
+              style={{ width: `${fin.percentualFaturamento}%` }}/>
+          </div>
+          {saldoFaturamento > 0 && nav.isAtual && (
+            <p className="text-xs text-gray-500 mt-2">Pode faturar até <span className="font-semibold text-emerald-600">{fmt(maxPorMes)}</span>/mês até dezembro</p>
+          )}
+          {fin.percentualFaturamento >= 80 && (
+            <p className="text-xs text-red-500 font-medium mt-2">⚠ Atenção: próximo do limite de desenquadramento!</p>
+          )}
         </div>
-        <p className="text-xs text-gray-400 mt-0.5">{fmt(fin.faturamentoAnual)} de {fmt(fin.config.limiteAnual)}</p>
-        <div className="mt-3 w-full bg-gray-100 rounded-full h-3">
-          <div className={`h-3 rounded-full transition-all duration-700 ${fin.percentualFaturamento > 80 ? "bg-red-500" : fin.percentualFaturamento > 60 ? "bg-amber-500" : "bg-emerald-500"}`}
-            style={{ width: `${fin.percentualFaturamento}%` }}/>
-        </div>
-        {saldoFaturamento > 0 && nav.isAtual && (
-          <p className="text-xs text-gray-500 mt-2">Pode faturar até <span className="font-semibold text-emerald-600">{fmt(maxPorMes)}</span>/mês até dezembro</p>
-        )}
-        {fin.percentualFaturamento >= 80 && (
-          <p className="text-xs text-red-500 font-medium mt-2">⚠ Atenção: próximo do limite de desenquadramento!</p>
-        )}
-      </div>
+      )}
 
       {/* Assistente financeiro contextual */}
       {nav.isAtual && <AssistenteFinanceiro fin={fin} nav={nav} receitas={receitas} despesas={despesas} saldo={saldo}/>}
 
-      {/* DAS */}
-      {nav.isAtual && (
+      {/* DAS — só MEI e Simples */}
+      {!isPF && nav.isAtual && (
         dasEmDia ? (
           <div className="mt-4 bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-center gap-3">
             <Ic.Check s={20} c="#059669"/>
@@ -2431,17 +2444,36 @@ function Configuracoes({ fin, auth, premium }) {
     reader.readAsText(file);
   }
 
+  const isPFConfig = fin.config.regime === "Pessoa Física";
   const campos = [
-    { id: "nome", rotulo: "Nome do MEI", valor: fin.config.nome || "Toque para configurar" },
-    { id: "cnpj", rotulo: "CNPJ", valor: fin.config.cnpj ? mascaraCNPJ(fin.config.cnpj) : "Toque para configurar" },
-    { id: "limiteAnual", rotulo: "Limite anual", valor: fmt(fin.config.limiteAnual) },
-    { id: "diaDAS", rotulo: "Dia do DAS", valor: String(fin.config.diaDAS) },
+    { id: "nome", rotulo: isPFConfig ? "Nome" : "Nome do negócio", valor: fin.config.nome || "Toque para configurar" },
+    ...(!isPFConfig ? [
+      { id: "cnpj", rotulo: "CNPJ", valor: fin.config.cnpj ? mascaraCNPJ(fin.config.cnpj) : "Toque para configurar" },
+      { id: "limiteAnual", rotulo: "Limite anual", valor: fmt(fin.config.limiteAnual) },
+      { id: "diaDAS", rotulo: "Dia do DAS", valor: String(fin.config.diaDAS) },
+    ] : []),
   ];
   const dasHistorico = [...fin.registrosDAS].sort((a,b) => b.mesReferencia.localeCompare(a.mesReferencia));
 
   return (
     <div className="px-5 pt-6 pb-24">
       <h1 className="text-2xl font-bold text-gray-900">Ajustes</h1>
+
+      {/* Regime / Perfil */}
+      <div className="mt-4 bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
+        <p className="text-xs text-gray-400 mb-2">Perfil</p>
+        <div className="flex gap-2">
+          {["MEI", "Simples Nacional", "Pessoa Física"].map(r => (
+            <button key={r} onClick={() => {
+              const cats = categoriasParaRegime(r);
+              fin.salvarConfig({ regime: r, categoriasReceita: cats.receita, categoriasDespesa: cats.despesa, limiteAnual: r === "Pessoa Física" ? 0 : (r === "MEI" ? 81000 : fin.config.limiteAnual) });
+            }}
+              className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${fin.config.regime === r ? "bg-emerald-600 text-white" : "bg-gray-100 text-gray-600"}`}>
+              {r === "Simples Nacional" ? "Simples" : r === "Pessoa Física" ? "Pessoal" : r}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* Indicador de plano */}
       {premium.isPremium ? (
@@ -2526,7 +2558,7 @@ function Configuracoes({ fin, auth, premium }) {
         </div>
       )}
 
-      {dasHistorico.length > 0 && (
+      {!isPFConfig && dasHistorico.length > 0 && (
         <div className="mt-6"><h2 className="text-lg font-semibold text-gray-900 mb-3">Histórico DAS</h2>
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             {dasHistorico.map((d, i) => (
@@ -2637,6 +2669,9 @@ function Onboarding({ onConcluir }) {
   const [passo, setPasso] = useState(0);
   const [nome, setNome] = useState("");
   const [cnpj, setCnpj] = useState("");
+  const [regime, setRegime] = useState("MEI");
+
+  const isPF = regime === "Pessoa Física";
 
   const passos = [
     // Passo 0: Boas-vindas
@@ -2646,9 +2681,9 @@ function Onboarding({ onConcluir }) {
           <span className="text-4xl font-bold text-white">$</span>
         </div>
         <h1 className="text-3xl font-bold">MEI Dinheiro Verde</h1>
-        <p className="text-emerald-100 mt-3 text-base leading-relaxed">O app financeiro que entende de MEI</p>
+        <p className="text-emerald-100 mt-3 text-base leading-relaxed">Seu controle financeiro simplificado</p>
         <div className="mt-8 space-y-3 text-left w-full">
-          {["Controle receitas e despesas", "Acompanhe seu limite de R$ 81 mil", "Nunca esqueça o DAS", "Gere pacote para o contador"].map((t, i) => (
+          {["Controle receitas e despesas", "Relatórios e gráficos por categoria", "Pacote organizado para o contador", "Assistente financeiro com IA"].map((t, i) => (
             <div key={i} className="flex items-center gap-3 bg-white/10 rounded-xl px-4 py-3">
               <Ic.Check s={16} c="#a7f3d0"/>
               <p className="text-sm text-emerald-50">{t}</p>
@@ -2662,62 +2697,94 @@ function Onboarding({ onConcluir }) {
       </div>
     ),
 
-    // Passo 1: Nome
+    // Passo 1: Perfil / Regime
     () => (
       <div className="flex flex-col justify-center min-h-screen bg-gray-50 px-8">
-        <p className="text-sm text-emerald-600 font-medium">Passo 1 de 3</p>
-        <h2 className="text-2xl font-bold text-gray-900 mt-2">Como podemos te chamar?</h2>
-        <p className="text-sm text-gray-500 mt-2">Esse nome aparece no seu dashboard.</p>
-        <input type="text" value={nome} onChange={e => setNome(e.target.value)} autoFocus placeholder="Seu nome ou nome do negócio"
-          className="mt-6 w-full border border-gray-200 rounded-xl px-4 py-4 text-base bg-white outline-none focus:border-emerald-400"
-          onKeyDown={e => { if (e.key === "Enter" && nome.trim()) setPasso(2); }}/>
-        <button onClick={() => setPasso(2)} disabled={!nome.trim()}
-          className={`mt-4 w-full py-4 rounded-xl font-semibold text-base transition-colors ${nome.trim() ? "bg-emerald-600 text-white active:bg-emerald-700" : "bg-gray-200 text-gray-400"}`}>
-          Continuar
-        </button>
-        <button onClick={() => setPasso(2)} className="mt-3 text-sm text-gray-400 text-center">Pular</button>
+        <p className="text-sm text-emerald-600 font-medium">Passo 1 de {isPF ? "3" : "4"}</p>
+        <h2 className="text-2xl font-bold text-gray-900 mt-2">Qual seu perfil?</h2>
+        <p className="text-sm text-gray-500 mt-2">O app se adapta às suas necessidades.</p>
+        <div className="mt-6 space-y-3">
+          {[
+            { id: "MEI", emoji: "🏪", titulo: "MEI", desc: "Microempreendedor Individual" },
+            { id: "Simples Nacional", emoji: "🏢", titulo: "Simples Nacional", desc: "PJ do Simples Nacional" },
+            { id: "Pessoa Física", emoji: "👤", titulo: "Pessoa Física", desc: "Controle pessoal" },
+          ].map(r => (
+            <button key={r.id} onClick={() => { setRegime(r.id); setPasso(2); }}
+              className="w-full flex items-center gap-4 bg-white border border-gray-200 rounded-xl p-4 text-left active:bg-emerald-50 active:border-emerald-300 transition-colors">
+              <span className="text-3xl">{r.emoji}</span>
+              <div>
+                <p className="text-sm font-semibold text-gray-800">{r.titulo}</p>
+                <p className="text-xs text-gray-500">{r.desc}</p>
+              </div>
+            </button>
+          ))}
+        </div>
       </div>
     ),
 
-    // Passo 2: CNPJ
+    // Passo 2: Nome
     () => (
       <div className="flex flex-col justify-center min-h-screen bg-gray-50 px-8">
-        <p className="text-sm text-emerald-600 font-medium">Passo 2 de 3</p>
+        <p className="text-sm text-emerald-600 font-medium">Passo 2 de {isPF ? "3" : "4"}</p>
+        <h2 className="text-2xl font-bold text-gray-900 mt-2">{isPF ? "Como podemos te chamar?" : "Nome do seu negócio"}</h2>
+        <p className="text-sm text-gray-500 mt-2">{isPF ? "Esse nome aparece no seu dashboard." : "Pode ser seu nome ou nome fantasia."}</p>
+        <input type="text" value={nome} onChange={e => setNome(e.target.value)} autoFocus
+          placeholder={isPF ? "Seu nome" : "Nome ou nome do negócio"}
+          className="mt-6 w-full border border-gray-200 rounded-xl px-4 py-4 text-base bg-white outline-none focus:border-emerald-400"
+          onKeyDown={e => { if (e.key === "Enter" && nome.trim()) setPasso(isPF ? 4 : 3); }}/>
+        <button onClick={() => setPasso(isPF ? 4 : 3)} disabled={!nome.trim()}
+          className={`mt-4 w-full py-4 rounded-xl font-semibold text-base transition-colors ${nome.trim() ? "bg-emerald-600 text-white active:bg-emerald-700" : "bg-gray-200 text-gray-400"}`}>
+          Continuar
+        </button>
+        <button onClick={() => setPasso(isPF ? 4 : 3)} className="mt-3 text-sm text-gray-400 text-center">Pular</button>
+      </div>
+    ),
+
+    // Passo 3: CNPJ (só para MEI e Simples — PF pula direto para 4)
+    () => (
+      <div className="flex flex-col justify-center min-h-screen bg-gray-50 px-8">
+        <p className="text-sm text-emerald-600 font-medium">Passo 3 de 4</p>
         <h2 className="text-2xl font-bold text-gray-900 mt-2">Qual seu CNPJ?</h2>
         <p className="text-sm text-gray-500 mt-2">Opcional — ajuda a organizar seus dados.</p>
         <input type="text" inputMode="numeric" value={cnpj} onChange={e => setCnpj(mascaraCNPJ(e.target.value))} placeholder="00.000.000/0001-00"
           className="mt-6 w-full border border-gray-200 rounded-xl px-4 py-4 text-base bg-white outline-none focus:border-emerald-400 tracking-wide"
-          onKeyDown={e => { if (e.key === "Enter") setPasso(3); }}/>
+          onKeyDown={e => { if (e.key === "Enter") setPasso(4); }}/>
         {cnpj && cnpj.replace(/\D/g, "").length > 0 && cnpj.replace(/\D/g, "").length < 14 && (
           <p className="text-xs text-amber-500 mt-2">CNPJ precisa ter 14 dígitos. Você pode pular se preferir.</p>
         )}
         <button onClick={() => {
             const nums = cnpj.replace(/\D/g, "");
-            if (nums.length > 0 && nums.length < 14) return; // bloqueia CNPJ incompleto
-            setPasso(3);
+            if (nums.length > 0 && nums.length < 14) return;
+            setPasso(4);
           }}
           className="mt-4 w-full bg-emerald-600 text-white py-4 rounded-xl font-semibold text-base active:bg-emerald-700">
           Continuar
         </button>
-        <button onClick={() => { setCnpj(""); setPasso(3); }} className="mt-3 text-sm text-gray-400 text-center">Pular</button>
+        <button onClick={() => { setCnpj(""); setPasso(4); }} className="mt-3 text-sm text-gray-400 text-center">Pular</button>
       </div>
     ),
 
-    // Passo 3: Pronto!
+    // Passo 4: Pronto!
     () => (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 px-8 text-center">
         <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mb-6">
           <Ic.Check s={40} c="#059669"/>
         </div>
-        <h2 className="text-2xl font-bold text-gray-900">Tudo pronto, {nome || "MEI"}!</h2>
-        <p className="text-sm text-gray-500 mt-3 leading-relaxed">Agora registre seu primeiro lançamento. Cada receita que você cadastrar aparece no termômetro de faturamento — assim você acompanha o limite de R$ 81 mil em tempo real.</p>
+        <h2 className="text-2xl font-bold text-gray-900">Tudo pronto, {nome || (isPF ? "você" : "MEI")}!</h2>
+        <p className="text-sm text-gray-500 mt-3 leading-relaxed">
+          {isPF
+            ? "Agora registre seu primeiro lançamento. Acompanhe para onde vai seu dinheiro com gráficos e relatórios."
+            : `Agora registre seu primeiro lançamento. Cada receita aparece no termômetro de faturamento — assim você acompanha o limite${regime === "MEI" ? " de R$ 81 mil" : ""} em tempo real.`}
+        </p>
 
-        <div className="mt-6 bg-amber-50 border border-amber-200 rounded-xl p-4 w-full text-left">
-          <p className="text-sm font-medium text-amber-800">O que é DAS-MEI?</p>
-          <p className="text-xs text-amber-700 mt-1 leading-relaxed">É o boleto mensal do MEI (R$ 81,10 em 2026). Vence todo dia 20. O app te avisa quando está pendente para você não esquecer.</p>
-        </div>
+        {!isPF && (
+          <div className="mt-6 bg-amber-50 border border-amber-200 rounded-xl p-4 w-full text-left">
+            <p className="text-sm font-medium text-amber-800">O que é DAS-MEI?</p>
+            <p className="text-xs text-amber-700 mt-1 leading-relaxed">É o boleto mensal do MEI (R$ 81,10 em 2026). Vence todo dia 20. O app te avisa quando está pendente para você não esquecer.</p>
+          </div>
+        )}
 
-        <button onClick={() => onConcluir(nome, cnpj)}
+        <button onClick={() => onConcluir(nome, cnpj, regime)}
           className="mt-8 w-full bg-emerald-600 text-white py-4 rounded-xl font-semibold text-base active:bg-emerald-700 transition-colors">
           Começar a usar
         </button>
@@ -2883,8 +2950,14 @@ export default function App() {
     );
   }
 
-  function concluirOnboarding(nome, cnpj) {
-    const dados = { onboardingCompleto: true, termosAceitosEm: new Date().toISOString() };
+  function concluirOnboarding(nome, cnpj, regime) {
+    const cats = categoriasParaRegime(regime);
+    const dados = {
+      onboardingCompleto: true, termosAceitosEm: new Date().toISOString(),
+      regime: regime || "MEI",
+      categoriasReceita: cats.receita, categoriasDespesa: cats.despesa,
+    };
+    if (regime === "Pessoa Física") dados.limiteAnual = 0;
     if (nome.trim()) dados.nome = nome.trim();
     if (cnpj.trim()) dados.cnpj = mascaraCNPJ(cnpj);
     fin.salvarConfig(dados);
