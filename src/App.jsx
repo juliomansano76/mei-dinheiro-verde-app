@@ -366,6 +366,7 @@ const Ic = {
   Fwd: ({s=22,c="currentColor"}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>,
   Check: ({s=16,c="currentColor"}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>,
   Trash: ({s=18,c="currentColor"}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>,
+  Eye: ({s=18,c="currentColor"}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
   Clip: ({s=16,c="currentColor"}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>,
   Send: ({s=18,c="currentColor"}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>,
   X: ({s=18,c="currentColor"}) => <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
@@ -2806,6 +2807,7 @@ function TelaLogin({ auth }) {
   const [enviando, setEnviando] = useState(false);
   const [sucesso, setSucesso] = useState(false);
   const [aceitouTermos, setAceitouTermos] = useState(false);
+  const [mostrarSenha, setMostrarSenha] = useState(false);
 
   async function handleSubmit() {
     if (modo === "cadastro" && !aceitouTermos) {
@@ -2868,11 +2870,17 @@ function TelaLogin({ auth }) {
         </div>
         <div>
           <label className="text-xs text-gray-500 block mb-1">Senha</label>
-          <input type="password" value={senha} onChange={e => setSenha(e.target.value)}
-            className="w-full border border-gray-200 rounded-xl px-4 py-3.5 text-base bg-white outline-none focus:border-emerald-400"
-            placeholder={modo === "cadastro" ? "Mín. 8 caracteres, maiúscula, número" : "Sua senha"}
-            autoComplete={modo === "login" ? "current-password" : "new-password"}
-            onKeyDown={e => { if (e.key === "Enter") handleSubmit(); }}/>
+          <div className="relative">
+            <input type={mostrarSenha ? "text" : "password"} value={senha} onChange={e => setSenha(e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-4 pr-12 py-3.5 text-base bg-white outline-none focus:border-emerald-400"
+              placeholder={modo === "cadastro" ? "Mín. 8 caracteres, maiúscula, especial" : "Sua senha"}
+              autoComplete={modo === "login" ? "current-password" : "new-password"}
+              onKeyDown={e => { if (e.key === "Enter") handleSubmit(); }}/>
+            <button type="button" onClick={() => setMostrarSenha(!mostrarSenha)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 active:text-gray-600 p-1">
+              {mostrarSenha ? <Ic.X s={18}/> : <Ic.Eye s={18}/>}
+            </button>
+          </div>
         </div>
 
         {erro && <p className="text-sm text-red-500 text-center bg-red-50 rounded-xl p-3">{erro}</p>}
