@@ -684,12 +684,19 @@ function BannerInstalar() {
     if (deferredPrompt) {
       deferredPrompt.prompt();
       const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === "accepted") { setMostrar(false); }
       setDeferredPrompt(null);
+      if (outcome === "accepted") { dispensar(); }
     } else if (isIOS) {
       setPassoIOS(true);
     }
   }
+
+  // Esconde quando o app é instalado
+  useEffect(() => {
+    const handler = () => { dispensar(); };
+    window.addEventListener("appinstalled", handler);
+    return () => window.removeEventListener("appinstalled", handler);
+  }, []);
 
   function dispensar() {
     localStorage.setItem("pwa_banner_dispensado", String(Date.now()));
