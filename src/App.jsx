@@ -646,6 +646,111 @@ function InputTextoNatural({ onLancamentoCriado }) {
 }
 
 // ============================================================
+// BANNER INSTALAR APP
+// ============================================================
+function BannerInstalar() {
+  const [mostrar, setMostrar] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [isIOS, setIsIOS] = useState(false);
+  const [passoIOS, setPassoIOS] = useState(false);
+
+  useEffect(() => {
+    // Não mostra se já está instalado (standalone)
+    if (window.matchMedia("(display-mode: standalone)").matches) return;
+    if (window.navigator.standalone === true) return;
+
+    // Verifica se já foi dispensado nos últimos 7 dias
+    const dispensado = localStorage.getItem("pwa_banner_dispensado");
+    if (dispensado && Date.now() - Number(dispensado) < 7 * 24 * 60 * 60 * 1000) return;
+
+    // Detecta iOS
+    const ios = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    setIsIOS(ios);
+
+    if (ios) {
+      // iOS não tem beforeinstallprompt, mostra instruções manuais
+      setTimeout(() => setMostrar(true), 3000);
+    } else {
+      // Android/Desktop: escuta o evento nativo
+      const handler = (e) => { e.preventDefault(); setDeferredPrompt(e); setMostrar(true); };
+      window.addEventListener("beforeinstallprompt", handler);
+      // Se o evento não disparar em 5s, mostra instruções genéricas
+      const timer = setTimeout(() => setMostrar(true), 5000);
+      return () => { window.removeEventListener("beforeinstallprompt", handler); clearTimeout(timer); };
+    }
+  }, []);
+
+  async function instalar() {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === "accepted") { setMostrar(false); }
+      setDeferredPrompt(null);
+    } else if (isIOS) {
+      setPassoIOS(true);
+    }
+  }
+
+  function dispensar() {
+    localStorage.setItem("pwa_banner_dispensado", String(Date.now()));
+    setMostrar(false);
+  }
+
+  if (!mostrar) return null;
+
+  if (passoIOS) {
+    return (
+      <div className="fixed inset-0 bg-black/60 z-[80] flex items-end justify-center" onClick={() => setPassoIOS(false)}>
+        <div className="bg-white rounded-t-3xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
+          <h3 className="text-lg font-bold text-gray-900 text-center">Como instalar no iPhone</h3>
+          <div className="mt-4 space-y-4">
+            <div className="flex items-center gap-4">
+              <span className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center text-sm font-bold text-emerald-600 flex-shrink-0">1</span>
+              <p className="text-sm text-gray-700">Toque no botão <strong>Compartilhar</strong> (ícone ↑) na barra do Safari</p>
+            </div>
+            <div className="flex items-center gap-4">
+              <span className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center text-sm font-bold text-emerald-600 flex-shrink-0">2</span>
+              <p className="text-sm text-gray-700">Role para baixo e toque em <strong>"Adicionar à Tela de Início"</strong></p>
+            </div>
+            <div className="flex items-center gap-4">
+              <span className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center text-sm font-bold text-emerald-600 flex-shrink-0">3</span>
+              <p className="text-sm text-gray-700">Toque em <strong>"Adicionar"</strong>. Pronto! O ícone aparece na tela.</p>
+            </div>
+          </div>
+          <button onClick={() => setPassoIOS(false)}
+            className="mt-6 w-full bg-emerald-600 text-white py-3 rounded-xl font-medium text-sm">Entendi</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed bottom-20 left-3 right-3 max-w-md mx-auto bg-white border border-emerald-200 rounded-2xl p-4 shadow-lg z-50 animate-slide-up">
+      <div className="flex items-start gap-3">
+        <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center flex-shrink-0">
+          <span className="text-xl font-bold text-white">$</span>
+        </div>
+        <div className="flex-1">
+          <p className="text-sm font-semibold text-gray-800">Instalar o app</p>
+          <p className="text-xs text-gray-500 mt-0.5">Adicione à tela inicial para acessar mais rápido</p>
+        </div>
+        <button onClick={dispensar} className="text-gray-300 p-1"><Ic.X s={16}/></button>
+      </div>
+      <div className="flex gap-2 mt-3">
+        <button onClick={instalar}
+          className="flex-1 bg-emerald-600 text-white py-2.5 rounded-xl text-xs font-medium active:bg-emerald-700">
+          {isIOS ? "Ver como instalar" : "Instalar"}
+        </button>
+        <button onClick={dispensar}
+          className="flex-1 bg-gray-100 text-gray-500 py-2.5 rounded-xl text-xs font-medium">
+          Agora não
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // BOTTOM NAV
 // ============================================================
 function BottomNav({ pagina, onNav }) {
@@ -3055,6 +3160,7 @@ export default function App() {
     <div className="max-w-md mx-auto min-h-screen bg-gray-50">
       {renderPagina()}
       {!semNav && <BottomNav pagina={pagina} onNav={navegar}/>}
+      <BannerInstalar/>
       {premium.modalAberto && <ModalPremium regime={fin.config.regime} onFechar={() => premium.setModalAberto(false)} onAssinar={(plano) => { premium.setModalAberto(false); setCheckoutPlano(plano); setPagina("checkout"); }}/>}
       {pagina === "checkout" && <div className="fixed inset-0 z-[60] bg-gray-50"><CheckoutPIX plano={checkoutPlano} userEmail={auth.usuario?.email} onVoltar={() => { setCheckoutPlano(null); setPagina("dashboard"); }} onConfirmar={() => { setCheckoutPlano(null); setPagina("dashboard"); }}/></div>}
     </div>
