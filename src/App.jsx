@@ -1535,7 +1535,7 @@ function Dashboard({ fin, nav, onNav, premium }) {
             + `💰 Receitas: ${fmt(receitas)}\n`
             + `💸 Despesas: ${fmt(despesas)}\n`
             + `${saldo >= 0 ? "✅" : "🔴"} Saldo: ${fmt(saldo)}\n\n`
-            + `📈 Faturamento anual: ${fmt(fin.faturamentoAnual)} de ${fmt(fin.config.limiteAnual)} (${Math.round(fin.percentualFaturamento)}%)\n\n`
+            + (isPF ? "" : `📈 Faturamento anual: ${fmt(fin.faturamentoAnual)} de ${fmt(fin.config.limiteAnual)} (${Math.round(fin.percentualFaturamento)}%)\n\n`)
             + `_Enviado pelo Dinheiro Verde_\n`
             + `mei-dinheiro-verde-app.vercel.app`;
           const url = `https://wa.me/?text=${encodeURIComponent(texto)}`;
@@ -1799,7 +1799,7 @@ function NovoLancamento({ fin, arq, onVoltar, modoInicial, lancamentoEditando, p
     <div className="px-5 pt-4 pb-10 min-h-screen bg-gray-50">
       <button onClick={onVoltar} className="flex items-center gap-1 text-gray-500 text-sm mb-4"><Ic.Back s={18}/> Voltar</button>
       <h1 className="text-2xl font-bold text-gray-900">{editando ? "Editar lançamento" : "Novo registro"}</h1>
-      {!editando && <div className="flex gap-2 mt-4">
+      {!editando && fin.config.regime !== "Pessoa Física" && <div className="flex gap-2 mt-4">
         {[{ id: "lancamento", label: "Lançamento", emoji: "💰" }, { id: "das", label: "DAS", emoji: "📋" }].map(m => (
           <button key={m.id} onClick={() => setModo(m.id)}
             className={`flex-1 py-3 rounded-xl text-center text-sm font-medium transition-all ${modo === m.id ? "bg-emerald-600 text-white shadow-md" : "bg-white border border-gray-200 text-gray-600"}`}>
@@ -2050,34 +2050,38 @@ function PacoteContador({ fin, nav, lancs, receitas, despesas, comAnexo, arq, pr
       doc.text(fmt(saldo), margem + 35, y);
       y += 6;
 
-      // Faturamento anual
-      doc.setFont("helvetica", "normal"); doc.setTextColor(100, 100, 100);
-      doc.text(`Faturamento anual: ${fmt(fin.faturamentoAnual)} de ${fmt(fin.config.limiteAnual)} (${Math.round(fin.percentualFaturamento)}%)`, margem, y);
-      y += 4;
+      // Faturamento anual (só MEI/Simples)
+      if (fin.config.regime !== "Pessoa Física" && fin.config.limiteAnual > 0) {
+        doc.setFont("helvetica", "normal"); doc.setTextColor(100, 100, 100);
+        doc.text(`Faturamento anual: ${fmt(fin.faturamentoAnual)} de ${fmt(fin.config.limiteAnual)} (${Math.round(fin.percentualFaturamento)}%)`, margem, y);
+        y += 4;
 
-      // Barra de progresso
-      doc.setFillColor(229, 231, 235);
-      doc.roundedRect(margem, y, largura, 4, 2, 2, "F");
-      const pctW = Math.min(fin.percentualFaturamento / 100, 1) * largura;
-      const corBarra = fin.percentualFaturamento > 80 ? [220, 38, 38] : fin.percentualFaturamento > 60 ? [245, 158, 11] : [5, 150, 105];
-      doc.setFillColor(...corBarra);
-      if (pctW > 0) doc.roundedRect(margem, y, pctW, 4, 2, 2, "F");
-      y += 10;
-      linha();
-
-      // ─── DAS ───
-      texto("DAS — Simples Nacional", margem, 12, "bold"); y += 7;
-      if (dasDoMes) {
-        const statusDAS = dasDoMes.status === "pago" ? "✓ Pago" : "✗ Pendente";
-        const corDAS = dasDoMes.status === "pago" ? [5, 150, 105] : [220, 38, 38];
-        texto(`Mês: ${mesRef}`, margem, 10); y += 5;
-        texto(`Valor: ${fmt(dasDoMes.valor)}`, margem, 10); y += 5;
-        doc.setTextColor(...corDAS);
-        texto(`Status: ${statusDAS}`, margem, 10, "bold", corDAS); y += 8;
-      } else {
-        texto("Nenhum registro de DAS para este mês.", margem, 10, "normal", [150, 150, 150]); y += 8;
+        // Barra de progresso
+        doc.setFillColor(229, 231, 235);
+        doc.roundedRect(margem, y, largura, 4, 2, 2, "F");
+        const pctW = Math.min(fin.percentualFaturamento / 100, 1) * largura;
+        const corBarra = fin.percentualFaturamento > 80 ? [220, 38, 38] : fin.percentualFaturamento > 60 ? [245, 158, 11] : [5, 150, 105];
+        doc.setFillColor(...corBarra);
+        if (pctW > 0) doc.roundedRect(margem, y, pctW, 4, 2, 2, "F");
+        y += 10;
       }
       linha();
+
+      // ─── DAS (só MEI/Simples) ───
+      if (fin.config.regime !== "Pessoa Física") {
+        texto("DAS-MEI", margem, 12, "bold"); y += 7;
+        if (dasDoMes) {
+          const statusDAS = dasDoMes.status === "pago" ? "✓ Pago" : "✗ Pendente";
+          const corDAS = dasDoMes.status === "pago" ? [5, 150, 105] : [220, 38, 38];
+          texto(`Mês: ${mesRef}`, margem, 10); y += 5;
+          texto(`Valor: ${fmt(dasDoMes.valor)}`, margem, 10); y += 5;
+          doc.setTextColor(...corDAS);
+          texto(`Status: ${statusDAS}`, margem, 10, "bold", corDAS); y += 8;
+        } else {
+          texto("Nenhum registro de DAS para este mês.", margem, 10, "normal", [150, 150, 150]); y += 8;
+        }
+        linha();
+      }
 
       // ─── RECEITAS POR CATEGORIA ───
       if (Object.keys(recPorCat).length > 0) {
@@ -2251,7 +2255,7 @@ function PacoteContador({ fin, nav, lancs, receitas, despesas, comAnexo, arq, pr
     <div className="mt-4 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
       <div className="flex items-center gap-3 mb-3">
         <Ic.Send s={20} c="#059669"/>
-        <p className="text-sm font-medium text-gray-700">Pacote para o Contador</p>
+        <p className="text-sm font-medium text-gray-700">{fin.config.regime === "Pessoa Física" ? "Relatório Mensal PDF" : "Pacote para o Contador"}</p>
       </div>
       <p className="text-xs text-gray-500 mb-1">{lancs.length} lançamento{lancs.length !== 1 ? "s" : ""} no mês</p>
       <p className="text-xs text-gray-500 mb-3">{comAnexo.length} comprovante{comAnexo.length !== 1 ? "s" : ""} anexado{comAnexo.length !== 1 ? "s" : ""}</p>
@@ -2393,8 +2397,8 @@ function Relatorios({ fin, nav, filtroInicial, arq, premium }) {
         </button>
       )}
 
-      {/* Projeção */}
-      {premium.isPremium && nav.isAtual && (
+      {/* Projeção — só MEI/Simples */}
+      {premium.isPremium && nav.isAtual && fin.config.regime !== "Pessoa Física" && fin.config.limiteAnual > 0 && (
         <div className="mt-4 bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
           <p className="text-sm font-medium text-gray-700 mb-3">Projeção até dezembro</p>
           <div className="space-y-2 text-sm">
