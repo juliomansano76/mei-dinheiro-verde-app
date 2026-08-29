@@ -422,7 +422,7 @@ function useIA() {
 // ============================================================
 // ASSISTENTE MEI (Chatbot)
 // ============================================================
-function AssistenteMEIChat({ fin, onFechar }) {
+function AssistenteChat({ fin, onFechar }) {
   const [mensagens, setMensagens] = useState([
     { de: "bot", texto: "Olá! Sou o assistente do Dinheiro Verde. Pode me perguntar qualquer dúvida sobre finanças, impostos, controle de gastos... 😊" }
   ]);
@@ -453,13 +453,14 @@ function AssistenteMEIChat({ fin, onFechar }) {
     .map(l => `${l.tipo === "receita" ? "+" : "-"}${fmt(l.valor)} ${l.categoria}${l.descricao ? ` (${l.descricao})` : ""} em ${l.data}`).join("; ");
 
   const contexto = `Nome: ${fin.config.nome || "Não informado"}.
+Perfil: ${fin.config.regime || "MEI"}.
 Mês atual: ${MESES_NOME[mesAtual]}/${anoAtual}.
 Receitas deste mês: ${fmt(receitasMes)}. Detalhamento: ${detalheRec}.
 Despesas deste mês: ${fmt(despesasMes)}. Detalhamento: ${detalheDesp}.
-Saldo deste mês: ${fmt(saldoMes)}.
+Saldo deste mês: ${fmt(saldoMes)}.${fin.config.regime !== "Pessoa Física" && fin.config.limiteAnual > 0 ? `
 Faturamento anual acumulado: ${fmt(fin.faturamentoAnual)}.
-Limite anual MEI: ${fmt(fin.config.limiteAnual)}.
-Percentual do limite usado: ${Math.round(fin.percentualFaturamento)}%.
+Limite anual: ${fmt(fin.config.limiteAnual)}.
+Percentual do limite usado: ${Math.round(fin.percentualFaturamento)}%.` : ""}
 Custos fixos mensais: ${fmt(fin.custoFixoMensal)}.
 Total de lançamentos: ${fin.lancamentos.length}.
 Últimos lançamentos: ${ultimos || "Nenhum"}.`;
@@ -846,8 +847,8 @@ function AssistenteFinanceiro({ fin, nav, receitas, despesas, saldo }) {
       mensagens.push({
         tipo: "vermelho",
         icone: "🚨",
-        titulo: "Risco de desenquadramento",
-        texto: `Seu faturamento médio é ${fmt(mediaMensal)}/mês. Nesse ritmo, você ultrapassa o limite em ${nomeMesEstouro}. Considere virar ME ou reduzir o faturamento.`,
+        titulo: "Risco de ultrapassar o limite",
+        texto: `Seu faturamento médio é ${fmt(mediaMensal)}/mês. Nesse ritmo, você ultrapassa o limite em ${nomeMesEstouro}.`,
       });
     } else if (projecaoAnual > fin.config.limiteAnual * 0.85) {
       mensagens.push({
@@ -1562,7 +1563,7 @@ function Dashboard({ fin, nav, onNav, premium }) {
             <p className="text-xs text-gray-500 mt-2">Pode faturar até <span className="font-semibold text-emerald-600">{fmt(maxPorMes)}</span>/mês até dezembro</p>
           )}
           {fin.percentualFaturamento >= 80 && (
-            <p className="text-xs text-red-500 font-medium mt-2">⚠ Atenção: próximo do limite de desenquadramento!</p>
+            <p className="text-xs text-red-500 font-medium mt-2">⚠ Atenção: próximo do limite de faturamento!</p>
           )}
         </div>
       )}
@@ -1965,8 +1966,8 @@ function PacoteContador({ fin, nav, lancs, receitas, despesas, comAnexo, arq, pr
       const largura = pw - margem * 2;
       let y = 20;
 
-      const nomeMEI = fin.config.nome || "MEI";
-      const cnpjMEI = fin.config.cnpj || "Não informado";
+      const nomeUsuario = fin.config.nome || "Usuário";
+      const cnpjUsuario = fin.config.cnpj || "Não informado";
       const mesRef = `${MESES_NOME[nav.mes]} / ${nav.ano}`;
       const saldo = receitas - despesas;
 
@@ -2004,7 +2005,7 @@ function PacoteContador({ fin, nav, lancs, receitas, despesas, comAnexo, arq, pr
       doc.setFontSize(18);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(255, 255, 255);
-      doc.text("MEI Dinheiro Verde", margem, 18);
+      doc.text("Dinheiro Verde", margem, 18);
       doc.setFontSize(11);
       doc.setFont("helvetica", "normal");
       doc.text(`Relatório Financeiro — ${mesRef}`, margem, 28);
@@ -2012,12 +2013,17 @@ function PacoteContador({ fin, nav, lancs, receitas, despesas, comAnexo, arq, pr
       doc.text(`Gerado em ${new Date().toLocaleDateString("pt-BR")}`, margem, 35);
       y = 50;
 
-      // ─── DADOS DO MEI ───
+      // ─── DADOS CADASTRAIS ───
       texto("Dados Cadastrais", margem, 12, "bold");
       y += 7;
-      texto(`Nome: ${nomeMEI}`, margem, 10); y += 5;
-      texto(`CNPJ: ${cnpjMEI}`, margem, 10); y += 5;
-      texto(`Limite anual: ${fmt(fin.config.limiteAnual)}`, margem, 10); y += 8;
+      texto(`Nome: ${nomeUsuario}`, margem, 10); y += 5;
+      if (fin.config.regime !== "Pessoa Física" && cnpjUsuario !== "Não informado") {
+        texto(`CNPJ: ${cnpjUsuario}`, margem, 10); y += 5;
+      }
+      if (fin.config.regime !== "Pessoa Física" && fin.config.limiteAnual > 0) {
+        texto(`Limite anual: ${fmt(fin.config.limiteAnual)}`, margem, 10); y += 5;
+      }
+      texto(`Perfil: ${fin.config.regime || "MEI"}`, margem, 10); y += 8;
       linha();
 
       // ─── RESUMO FINANCEIRO ───
@@ -2222,11 +2228,11 @@ function PacoteContador({ fin, nav, lancs, receitas, despesas, comAnexo, arq, pr
       for (let p = 1; p <= totalPaginas; p++) {
         doc.setPage(p);
         doc.setFontSize(7); doc.setFont("helvetica", "normal"); doc.setTextColor(180, 180, 180);
-        doc.text(`MEI Dinheiro Verde — ${mesRef} — Página ${p}/${totalPaginas}`, pw / 2, 290, { align: "center" });
+        doc.text(`Dinheiro Verde — ${mesRef} — Página ${p}/${totalPaginas}`, pw / 2, 290, { align: "center" });
       }
 
       // Salvar / compartilhar
-      const nomeArquivo = `MEI-${MESES_NOME[nav.mes]}-${nav.ano}.pdf`;
+      const nomeArquivo = `Financeiro-${MESES_NOME[nav.mes]}-${nav.ano}.pdf`;
       const blob = doc.output("blob");
 
       // Tenta usar Web Share API (mobile)
@@ -2234,7 +2240,7 @@ function PacoteContador({ fin, nav, lancs, receitas, despesas, comAnexo, arq, pr
         const file = new File([blob], nomeArquivo, { type: "application/pdf" });
         if (navigator.canShare({ files: [file] })) {
           try {
-            await navigator.share({ files: [file], title: `Relatório ${mesRef}`, text: `Pacote financeiro MEI — ${mesRef}` });
+            await navigator.share({ files: [file], title: `Relatório ${mesRef}`, text: `Relatório financeiro — ${mesRef}` });
             setStatus("pronto");
             return;
           } catch (e) { /* user cancelled share, fall through to download */ }
@@ -3114,7 +3120,7 @@ export default function App() {
             <span className="text-3xl font-bold text-white">$</span>
           </div>
           <h1 className="text-2xl font-bold text-gray-900">Atualizamos nossas políticas</h1>
-          <p className="text-sm text-gray-500 mt-2">Para continuar usando o MEI Dinheiro Verde, leia e aceite nossos termos atualizados.</p>
+          <p className="text-sm text-gray-500 mt-2">Para continuar usando o Dinheiro Verde, leia e aceite nossos termos atualizados.</p>
         </div>
 
         <div className="space-y-3 mb-6">
@@ -3161,7 +3167,7 @@ export default function App() {
       case "novo-das": return <NovoLancamento fin={fin} arq={arq} onVoltar={() => navegar("dashboard")} modoInicial="das" premium={premium}/>;
       case "relatorios": return <Relatorios fin={fin} nav={nav} filtroInicial={relFiltro} arq={arq} premium={premium}/>;
       case "config": return <Configuracoes fin={fin} auth={auth} premium={premium}/>;
-      case "assistente": return <AssistenteMEIChat fin={fin} onFechar={() => navegar("dashboard")}/>;
+      case "assistente": return <AssistenteChat fin={fin} onFechar={() => navegar("dashboard")}/>;
       default: return <Dashboard fin={fin} nav={nav} onNav={navegar} premium={premium}/>;
     }
   }
