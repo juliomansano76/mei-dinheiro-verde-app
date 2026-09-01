@@ -208,14 +208,14 @@ function useFinancas(userId) {
   }, [userId]);
 
   function lancamentosDoMesAno(mes, ano) {
-    return lancamentos.filter(l => { const d = new Date(l.data); return d.getMonth() === mes && d.getFullYear() === ano; });
+    return lancamentos.filter(l => { const [a, m] = l.data.split("-").map(Number); return (m - 1) === mes && a === ano; });
   }
   function receitasDoMesAno(mes, ano) { return lancamentosDoMesAno(mes, ano).filter(l => l.tipo === "receita").reduce((s, l) => s + l.valor, 0); }
   function despesasDoMesAno(mes, ano) { return lancamentosDoMesAno(mes, ano).filter(l => l.tipo === "despesa").reduce((s, l) => s + l.valor, 0); }
 
   const hoje = new Date();
   const anoAtual = hoje.getFullYear();
-  const faturamentoAnual = lancamentos.filter(l => l.tipo === "receita" && new Date(l.data).getFullYear() === anoAtual).reduce((s, l) => s + l.valor, 0);
+  const faturamentoAnual = lancamentos.filter(l => l.tipo === "receita" && l.data.startsWith(String(anoAtual))).reduce((s, l) => s + l.valor, 0);
   const percentualFaturamento = Math.min((faturamentoAnual / config.limiteAnual) * 100, 100);
 
   const recorrentes = lancamentos.filter(l => l.recorrente && l.tipo === "despesa");
