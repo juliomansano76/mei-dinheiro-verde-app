@@ -329,7 +329,7 @@ function fmtData(iso) {
   if (d.toDateString() === o.toDateString()) return "Ontem";
   return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" }).format(d);
 }
-function hojeISO() { return new Date().toISOString().split("T")[0]; }
+function hojeISO() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
 function nomeMes(ref) { const [a, m] = ref.split("-").map(Number); const s = new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" }).format(new Date(a, m-1, 1)); return s.charAt(0).toUpperCase() + s.slice(1).replace(/ De /g, " de "); }
 
 // Máscara de moeda: transforma input em "1.500,00"
