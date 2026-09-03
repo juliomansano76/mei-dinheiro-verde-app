@@ -149,7 +149,7 @@ function useFinancas(userId) {
     if (dados.arquivoId !== undefined) u.arquivo_url = dados.arquivoId;
     if (dados.recorrente !== undefined) u.recorrente = dados.recorrente;
     await supabase.from("lancamentos").update(u).eq("id", id).eq("user_id", userId);
-  }, []);
+  }, [userId]);
 
   const removerLancamento = useCallback(async (id) => {
     setLancamentos(prev => prev.filter(l => l.id !== id));
@@ -170,7 +170,7 @@ function useFinancas(userId) {
   const atualizarStatusDAS = useCallback(async (id, status) => {
     setRegistrosDAS(prev => prev.map(d => d.id === id ? { ...d, status } : d));
     await supabase.from("registros_das").update({ status }).eq("id", id).eq("user_id", userId);
-  }, []);
+  }, [userId]);
 
   const existeLancamentoDAS = useCallback((mesRef) => {
     return lancamentos.some(l => l.categoria === "DAS-MEI" && l.descricao === `DAS ref. ${mesRef}`);
